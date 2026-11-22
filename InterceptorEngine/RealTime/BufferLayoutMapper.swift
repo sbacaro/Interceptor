@@ -16,14 +16,14 @@ public struct RTChannelAddress: Sendable, Equatable {
     }
 }
 
-/// Fixed-capacity value table mapping 0-based logical channels (`0..<64`) onto
+/// Fixed-capacity value table mapping 0-based logical channels (`0..<128`) onto
 /// arbitrary interleaved, non-interleaved, or multi-stream Core Audio `AudioBufferList`s.
 public struct RTBufferLayoutMap: Sendable {
-    public static let maxChannels = 64
+    public static let maxChannels = 128
 
     public var channelCount: Int
     public var bufferCount: Int
-    public var channels: InlineArray<64, RTChannelAddress>
+    public var channels: InlineArray<128, RTChannelAddress>
 
     public init() {
         self.channelCount = 0
@@ -33,13 +33,19 @@ public struct RTBufferLayoutMap: Sendable {
 
     /// Builds a layout map from a Core Audio stream configuration (`[AudioBuffer]`).
     /// Each `AudioBuffer` entry represents one buffer in `AudioBufferList` with `mNumberChannels`.
-    public init(streamConfiguration buffers: [AudioBuffer]) {
+    ///
+    /// - Parameter skippingLeadingBuffers: Number of leading `AudioBuffer`s in `buffers` to skip
+    ///   (for example, the monitor destination subdevice's own input buffers inside a private
+    ///   aggregate device, so logical index `0` maps directly to the first SubTap channel while
+    ///   retaining each buffer's true `bufferIndex` inside `AudioBufferList`).
+    public init(streamConfiguration buffers: [AudioBuffer], skippingLeadingBuffers: Int = 0) {
         self.init()
         self.bufferCount = buffers.count
+        let startBuffer = max(0, min(skippingLeadingBuffers, buffers.count))
         var logicalIndex = 0
 
-        for (bufferIdx, audioBuffer) in buffers.enumerated() {
-            let chCount = Int(audioBuffer.mNumberChannels)
+        for bufferIdx in startBuffer..<buffers.count {
+            let chCount = Int(buffers[bufferIdx].mNumberChannels)
             guard chCount > 0 else { continue }
             for chOffset in 0..<chCount {
                 guard logicalIndex < Self.maxChannels else { break }

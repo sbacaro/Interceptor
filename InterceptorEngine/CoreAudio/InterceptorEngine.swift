@@ -375,6 +375,11 @@ public final class InterceptorEngine {
         }
     }
 
+    /// Resolves the 0-based tap input channel index corresponding to a 1-based logical source channel.
+    public func tapChannelIndex(forSourceChannel sourceChannel: Int, inBridgeID id: UUID) -> Int? {
+        runtimes[id]?.tapBridge.activeInfo?.logicalSourceToTapChannel[sourceChannel]
+    }
+
     /// Consumes per-channel input activity snapshot for a running bridge (for subtle live indicators).
     public func consumeActivitySnapshot(forBridgeID id: UUID) -> MeterFrameSnapshot {
         guard let runtime = runtimes[id], let info = runtime.tapBridge.activeInfo else {

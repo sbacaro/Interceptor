@@ -215,4 +215,98 @@ struct RealTimeAudioProcessorTests {
             #expect(abs(afterLiveUpdate[f * 2 + 0] - 0.3) < 1e-6)
         }
     }
+
+    @Test("Skips monitor destination input buffers before a 64-channel SubTap without shifting or truncating channels")
+    func skipsDestinationInputBuffersBeforeSubTap() {
+        let frames = 32
+        let destInputChannels = 8
+        let tapChannels = 64
+        let outChannels = 6
+
+        // Aggregate inputStreamConfiguration: [buf0: 8ch monitor mic/line inputs, buf1: 64ch SubTap]
+        let inputConfig = [
+            AudioBuffer(mNumberChannels: UInt32(destInputChannels), mDataByteSize: 0, mData: nil),
+            AudioBuffer(mNumberChannels: UInt32(tapChannels), mDataByteSize: 0, mData: nil)
+        ]
+        let inputLayout = RTBufferLayoutMap(streamConfiguration: inputConfig, skippingLeadingBuffers: 1)
+        let outputLayout = RTBufferLayoutMap.interleaved(channelCount: outChannels)
+
+        #expect(inputLayout.channelCount == 64)
+        #expect(inputLayout[0] == RTChannelAddress(bufferIndex: 1, channelOffset: 0, stride: 64, isValid: true))
+        #expect(inputLayout[2] == RTChannelAddress(bufferIndex: 1, channelOffset: 2, stride: 64, isValid: true))
+        #expect(inputLayout[63] == RTChannelAddress(bufferIndex: 1, channelOffset: 63, stride: 64, isValid: true))
+
+        // Patch discrete channels 3, 4, 5, 6, 7, 64 -> Out 1..6
+        let routes = [
+            ChannelRoute(label: "Ref L", sourceChannel: 3, destinationChannel: 1),
+            ChannelRoute(label: "Ref R", sourceChannel: 4, destinationChannel: 2),
+            ChannelRoute(label: "LFE 1", sourceChannel: 5, destinationChannel: 3),
+            ChannelRoute(label: "LFE 2", sourceChannel: 6, destinationChannel: 4),
+            ChannelRoute(label: "LFE 3", sourceChannel: 7, destinationChannel: 5),
+            ChannelRoute(label: "High", sourceChannel: 64, destinationChannel: 6)
+        ]
+        let processor = RealTimeAudioProcessor(
+            initialSnapshot: RTRoutingSnapshot.build(routes: routes),
+            inputLayout: inputLayout,
+            outputLayout: outputLayout
+        )
+
+        // Fill buffer 0 (monitor's own inputs) with loud 0.99 noise,
+        // and buffer 1 (64-ch tap) with unique identifiable values per channel.
+        let destInRaw = UnsafeMutablePointer<Float>.allocate(capacity: destInputChannels * frames)
+        let tapInRaw = UnsafeMutablePointer<Float>.allocate(capacity: tapChannels * frames)
+        let outRaw = UnsafeMutablePointer<Float>.allocate(capacity: outChannels * frames)
+        defer {
+            destInRaw.deallocate()
+            tapInRaw.deallocate()
+            outRaw.deallocate()
+        }
+
+        for i in 0..<(destInputChannels * frames) { destInRaw[i] = 0.99 }
+        for f in 0..<frames {
+            for c in 0..<tapChannels {
+                tapInRaw[f * tapChannels + c] = Float(c + 1) * 0.01
+            }
+        }
+        for i in 0..<(outChannels * frames) { outRaw[i] = -77.0 }
+
+        let inABL = AudioBufferList.allocate(maximumBuffers: 2)
+        defer { free(inABL.unsafeMutablePointer) }
+        inABL[0] = AudioBuffer(
+            mNumberChannels: UInt32(destInputChannels),
+            mDataByteSize: UInt32(destInputChannels * frames * MemoryLayout<Float>.size),
+            mData: UnsafeMutableRawPointer(destInRaw)
+        )
+        inABL[1] = AudioBuffer(
+            mNumberChannels: UInt32(tapChannels),
+            mDataByteSize: UInt32(tapChannels * frames * MemoryLayout<Float>.size),
+            mData: UnsafeMutableRawPointer(tapInRaw)
+        )
+
+        var outABL = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: UInt32(outChannels),
+                mDataByteSize: UInt32(outChannels * frames * MemoryLayout<Float>.size),
+                mData: UnsafeMutableRawPointer(outRaw)
+            )
+        )
+
+        withUnsafeMutablePointer(to: &outABL) { outABLPtr in
+            processor.process(
+                inInputData: UnsafePointer(inABL.unsafePointer),
+                outOutputData: outABLPtr,
+                frameCount: frames
+            )
+        }
+
+        for f in 0..<frames {
+            #expect(abs(outRaw[f * outChannels + 0] - 0.03) < 1e-6) // Tap Ch 3 (NOT Ch 1!)
+            #expect(abs(outRaw[f * outChannels + 1] - 0.04) < 1e-6) // Tap Ch 4 (NOT Ch 2!)
+            #expect(abs(outRaw[f * outChannels + 2] - 0.05) < 1e-6) // Tap Ch 5
+            #expect(abs(outRaw[f * outChannels + 3] - 0.06) < 1e-6) // Tap Ch 6
+            #expect(abs(outRaw[f * outChannels + 4] - 0.07) < 1e-6) // Tap Ch 7
+            #expect(abs(outRaw[f * outChannels + 5] - 0.64) < 1e-6) // Tap Ch 64 (not truncated!)
+        }
+    }
 }

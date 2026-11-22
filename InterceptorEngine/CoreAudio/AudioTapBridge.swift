@@ -169,9 +169,17 @@ public final class AudioTapBridge: @unchecked Sendable {
         }
 
         // 5. Inspect actual input/output stream layouts on the private aggregate device.
+        //    When the monitor destination has its own input streams (e.g. a physical audio interface
+        //    or virtual loopback driver), Core Audio places those input buffers BEFORE the SubTap
+        //    input buffers. Skip them so logical channel 0 always maps directly to the first SubTap channel.
+        let destInputConfig = (try? coreDest.inputStreamConfiguration) ?? []
+        let destInputBufferCount = destInputConfig.count
         let inputConfig = (try? aggregate.inputStreamConfiguration) ?? []
         let outputConfig = (try? aggregate.outputStreamConfiguration) ?? []
-        let inputLayout = RTBufferLayoutMap(streamConfiguration: inputConfig)
+        let inputLayout = RTBufferLayoutMap(
+            streamConfiguration: inputConfig,
+            skippingLeadingBuffers: destInputBufferCount
+        )
         let outputLayout = RTBufferLayoutMap(streamConfiguration: outputConfig)
 
         guard inputLayout.channelCount > 0, outputLayout.channelCount > 0 else {
@@ -199,7 +207,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         processor.updateRouting(initialSnapshot)
         processor.meterBank.resetAll()
 
-        // 7. Register C-function IOProc and start Core Audio device.
+        // 7. Register C-function IOProc, disable unused destination input streams, and start Core Audio device.
         var createdIOProcID: AudioDeviceIOProcID?
         let clientData = Unmanaged.passUnretained(processor).toOpaque()
         let createStatus = AudioDeviceCreateIOProcID(
@@ -211,6 +219,17 @@ public final class AudioTapBridge: @unchecked Sendable {
         guard createStatus == noErr, let validIOProcID = createdIOProcID else {
             cleanupPartial(taps: createdTaps, aggregate: aggregate)
             throw AudioTapBridgeError.ioProcRegistrationFailed(createStatus)
+        }
+
+        let destInputStreamCount = ((try? coreDest.streams) ?? []).filter { (try? $0.direction) == .input }.count
+        let aggInputStreamCount = ((try? aggregate.streams) ?? []).filter { (try? $0.direction) == .input }.count
+        if destInputStreamCount > 0 && aggInputStreamCount > destInputStreamCount {
+            configureTapOnlyInputStreamUsage(
+                aggregateID: aggregate.id,
+                ioProcID: validIOProcID,
+                totalInputStreams: aggInputStreamCount,
+                skippedLeadingStreams: destInputStreamCount
+            )
         }
 
         let startStatus = AudioDeviceStart(aggregate.id, validIOProcID)
@@ -246,8 +265,10 @@ public final class AudioTapBridge: @unchecked Sendable {
         )
         self.activeInfo = info
 
+        let aggInSummary = inputConfig.map { "\($0.mNumberChannels)ch" }.joined(separator: "+")
+        let aggOutSummary = outputConfig.map { "\($0.mNumberChannels)ch" }.joined(separator: "+")
         logger.info(
-            "Started passive bridge: \(sourceDevice.name) (\(actualSourceRate) Hz, \(inputLayout.channelCount) ch) → \(destinationDevice.name) (\(actualDestRate) Hz, \(outputLayout.channelCount) ch, \(actualBufferFrames) fr)"
+            "Started passive bridge: \(sourceDevice.name) (\(actualSourceRate) Hz, tap \(inputLayout.channelCount) ch, aggIn=[\(aggInSummary)], skippedDestInBufs=\(destInputBufferCount)) → \(destinationDevice.name) (\(actualDestRate) Hz, aggOut=[\(aggOutSummary)], \(actualBufferFrames) fr)"
         )
         return info
     }
@@ -290,6 +311,52 @@ public final class AudioTapBridge: @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    /// Disables the monitor destination subdevice's own input streams on this IOProc so Core Audio
+    /// only captures from the SubTap input streams (avoiding wasted DMA and unnecessary mic access).
+    private func configureTapOnlyInputStreamUsage(
+        aggregateID: AudioObjectID,
+        ioProcID: AudioDeviceIOProcID,
+        totalInputStreams: Int,
+        skippedLeadingStreams: Int
+    ) {
+        guard totalInputStreams > 0 else { return }
+        let byteSize = MemoryLayout<AudioHardwareIOProcStreamUsage>.size
+            + max(0, totalInputStreams - 1) * MemoryLayout<UInt32>.size
+        let rawBuffer = UnsafeMutableRawPointer.allocate(
+            byteCount: byteSize,
+            alignment: MemoryLayout<AudioHardwareIOProcStreamUsage>.alignment
+        )
+        defer { rawBuffer.deallocate() }
+
+        let usage = rawBuffer.assumingMemoryBound(to: AudioHardwareIOProcStreamUsage.self)
+        usage.pointee.mIOProc = unsafeBitCast(ioProcID, to: UnsafeMutableRawPointer.self)
+        usage.pointee.mNumberStreams = UInt32(totalInputStreams)
+
+        if let flagsOffset = MemoryLayout<AudioHardwareIOProcStreamUsage>.offset(of: \.mStreamIsOn) {
+            let flags = rawBuffer.advanced(by: flagsOffset).assumingMemoryBound(to: UInt32.self)
+            for i in 0..<totalInputStreams {
+                flags[i] = i < skippedLeadingStreams ? 0 : 1
+            }
+        }
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyIOProcStreamUsage,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectSetPropertyData(
+            aggregateID,
+            &address,
+            0,
+            nil,
+            UInt32(byteSize),
+            rawBuffer
+        )
+        if status != noErr {
+            logger.warning("kAudioDevicePropertyIOProcStreamUsage returned OSStatus \(status)")
+        }
+    }
 
     private func makeTapDescription(
         sourceUID: String,

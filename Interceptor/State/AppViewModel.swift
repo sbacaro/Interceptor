@@ -252,7 +252,8 @@ public final class AppViewModel {
               let bank = metersByBridgeID[bridgeID] else {
             return SmoothedChannelMeter()
         }
-        let idx = route.sourceChannel - 1
+        let idx = engine.tapChannelIndex(forSourceChannel: route.sourceChannel, inBridgeID: bridgeID)
+            ?? (route.sourceChannel - 1)
         guard idx >= 0 && idx < bank.count else {
             return SmoothedChannelMeter()
         }

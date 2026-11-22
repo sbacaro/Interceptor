@@ -50,7 +50,7 @@ public struct MeterFrameSnapshot: Sendable, Equatable {
 /// Lock-free atomic bank of Peak, RMS, and Clip indicators bridging the real-time
 /// audio thread and the 60 Hz SwiftUI meter renderer with zero allocations on the RT thread.
 public final class AtomicMeterBank: @unchecked Sendable {
-    public static let maxChannels = 64
+    public static let maxChannels = 128
 
     private let inputPeaks: UnsafeMutablePointer<Atomic<UInt32>>
     private let inputRMS: UnsafeMutablePointer<Atomic<UInt32>>

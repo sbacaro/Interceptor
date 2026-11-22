@@ -153,6 +153,10 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
             let dstStride = Int(dstAddr.stride)
             let dstOffset = Int(dstAddr.channelOffset)
 
+            // Verify runtime channel stride matches the precomputed buffer layout before indexing.
+            guard Int(inBuffers[srcBufIdx].mNumberChannels) == srcStride,
+                  Int(outBuffers[dstBufIdx].mNumberChannels) == dstStride else { continue }
+
             let srcMax = Int(inBuffers[srcBufIdx].mDataByteSize) / MemoryLayout<Float>.size
             let dstMax = Int(outBuffers[dstBufIdx].mDataByteSize) / MemoryLayout<Float>.size
             guard srcOffset + (frameCount - 1) * srcStride < srcMax,
