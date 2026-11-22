@@ -87,15 +87,24 @@ public struct SmoothedChannelMeter: Sendable, Equatable {
     }
 }
 
-/// Isolated per-route observable meter holder so ONLY the tiny leaf `LiveChannelVUMeterView`
-/// re-renders at 30 Hz — never `RoutePatchListView`, `RouteRowView`, or its 64-item channel `Picker`s.
+/// Non-observable GPU meter bridge: pushes smoothed levels directly to `CoreAnimationVUMeterNSView`'s
+/// `CALayer`s without triggering a single SwiftUI view diff or body evaluation.
 @MainActor
-@Observable
 public final class RouteMeterModel {
-    public var level: SmoothedChannelMeter
+    public private(set) var level: SmoothedChannelMeter
+    private var renderer: (@MainActor (SmoothedChannelMeter) -> Void)?
 
     public init(level: SmoothedChannelMeter = SmoothedChannelMeter()) {
         self.level = level
+    }
+
+    public func attachRenderer(_ renderer: @escaping @MainActor (SmoothedChannelMeter) -> Void) {
+        self.renderer = renderer
+    }
+
+    public func push(_ newLevel: SmoothedChannelMeter) {
+        level = newLevel
+        renderer?(newLevel)
     }
 }
 
@@ -319,6 +328,8 @@ public final class AppViewModel {
     }
 
     public func installAvailableUpdate(_ update: AvailableUpdate) {
+        isSettingsPresented = false
+        isBridgeInfoPresented = false
         updater.installUpdate(update) { [weak self] in
             self?.shutdown()
         }
@@ -440,7 +451,7 @@ public final class AppViewModel {
                             }
 
                             if next.isVisiblyDifferent(from: model.level) {
-                                model.level = next
+                                model.push(next)
                             }
                         }
                     } else {
@@ -448,7 +459,7 @@ public final class AppViewModel {
                             guard let model = self.routeMeterModels[route.id], !model.level.isSilent else { continue }
                             var next = model.level
                             next.decayToSilence(deltaTime: dt)
-                            model.level = next
+                            model.push(next)
                             if !next.isSilent {
                                 anyDecaying = true
                             }

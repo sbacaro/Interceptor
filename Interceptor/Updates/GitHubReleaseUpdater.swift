@@ -237,8 +237,9 @@ public final class GitHubReleaseUpdater {
                 let targetAppURL = self.resolvedInstallDestination()
                 let needsAdmin = self.requiresAdministratorPrivileges(for: targetAppURL)
 
-                // Gracefully stop all Core Audio taps/aggregates before replacing the bundle.
+                // Gracefully stop all Core Audio taps/aggregates and let any dismissed sheet close cleanly.
                 onBeforeReplace()
+                try? await Task.sleep(for: .milliseconds(150))
 
                 if needsAdmin {
                     let result = try await Task.detached(priority: .userInitiated) {
@@ -255,7 +256,7 @@ public final class GitHubReleaseUpdater {
                     }
 
                     Self.spawnDetachedRelaunch(targetApp: targetAppURL, tempRoot: tempRoot, currentPID: getpid())
-                    NSApp.terminate(nil)
+                    exit(0)
                 } else {
                     Self.spawnDetachedReplaceAndRelaunch(
                         sourceApp: extractedAppURL,
@@ -263,7 +264,7 @@ public final class GitHubReleaseUpdater {
                         tempRoot: tempRoot,
                         currentPID: getpid()
                     )
-                    NSApp.terminate(nil)
+                    exit(0)
                 }
             } catch is CancellationError {
                 try? FileManager.default.removeItem(at: tempRoot)
@@ -315,41 +316,23 @@ public final class GitHubReleaseUpdater {
         var request = URLRequest(url: downloadURL)
         request.setValue("Interceptor/\(currentVersionString)", forHTTPHeaderField: "User-Agent")
 
-        let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw UpdaterError.networkError("Release download failed (HTTP \(code)).")
-        }
-
-        let totalBytes = http.expectedContentLength > 0 ? http.expectedContentLength : expectedBytes
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: destination)
-        defer { try? handle.close() }
-
-        var buffer = Data()
-        buffer.reserveCapacity(65_536)
-        var downloaded: Int64 = 0
-        var lastReportedProgress: Double = -1.0
-
-        for try await byte in asyncBytes {
-            try Task.checkCancellation()
-            buffer.append(byte)
-            if buffer.count >= 65_536 {
-                try handle.write(contentsOf: buffer)
-                downloaded += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
-                if totalBytes > 0 {
-                    let progress = min(1.0, Double(downloaded) / Double(totalBytes))
-                    if progress - lastReportedProgress >= 0.02 {
-                        lastReportedProgress = progress
-                        state = .downloading(progress: progress)
-                    }
+        let delegate = FastAssetDownloadDelegate(
+            expectedBytes: expectedBytes,
+            destination: destination,
+            onProgress: { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    self?.state = .downloading(progress: progress)
                 }
             }
-        }
+        )
 
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        try await withTaskCancellationHandler {
+            try await delegate.start(with: session, request: request)
+        } onCancel: {
+            delegate.cancel()
         }
         state = .downloading(progress: 1.0)
     }
@@ -476,6 +459,9 @@ public final class GitHubReleaseUpdater {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
         proc.arguments = ["-c", script, "_", "\(currentPID)", sourceApp.path, targetApp.path, tempRoot.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
         try? proc.run()
     }
 
@@ -499,11 +485,122 @@ public final class GitHubReleaseUpdater {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
         proc.arguments = ["-c", script, "_", "\(currentPID)", targetApp.path, tempRoot.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
         try? proc.run()
     }
 
     private nonisolated static func shellQuoted(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+// MARK: - Native Background Download Delegate
+
+/// Streams the GitHub release `.zip` straight to disk via `URLSessionDownloadTask` at full
+/// wire speed (zero per-byte main-actor hops) while reporting throttled progress updates.
+private final class FastAssetDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let expectedBytes: Int64
+    private let destination: URL
+    private let onProgress: @Sendable (Double) -> Void
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var task: URLSessionDownloadTask?
+    private var lastReportedProgress: Double = -1.0
+    private var didMoveFile = false
+
+    init(
+        expectedBytes: Int64,
+        destination: URL,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) {
+        self.expectedBytes = expectedBytes
+        self.destination = destination
+        self.onProgress = onProgress
+    }
+
+    func start(with session: URLSession, request: URLRequest) async throws {
+        try await withCheckedThrowingContinuation { cont in
+            lock.lock()
+            continuation = cont
+            let downloadTask = session.downloadTask(with: request)
+            task = downloadTask
+            lock.unlock()
+            downloadTask.resume()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        let active = task
+        lock.unlock()
+        active?.cancel()
+    }
+
+    private func finish(with result: Result<Void, Error>) {
+        lock.lock()
+        let cont = continuation
+        continuation = nil
+        task = nil
+        lock.unlock()
+        cont?.resume(with: result)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedBytes
+        guard total > 0 else { return }
+        let progress = min(1.0, Double(totalBytesWritten) / Double(total))
+        lock.lock()
+        let shouldReport = progress - lastReportedProgress >= 0.03 || progress >= 1.0
+        if shouldReport { lastReportedProgress = progress }
+        lock.unlock()
+        if shouldReport {
+            onProgress(progress)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            finish(with: .failure(UpdaterError.networkError("Release download failed (HTTP \(http.statusCode)).")))
+            return
+        }
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: location, to: destination)
+            lock.lock()
+            didMoveFile = true
+            lock.unlock()
+        } catch {
+            finish(with: .failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            finish(with: .failure(error))
+            return
+        }
+        lock.lock()
+        let moved = didMoveFile
+        lock.unlock()
+        if moved {
+            finish(with: .success(()))
+        } else {
+            finish(with: .failure(UpdaterError.networkError("Release download finished without writing file.")))
+        }
     }
 }
 

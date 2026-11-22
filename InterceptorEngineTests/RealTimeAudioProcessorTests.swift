@@ -309,4 +309,83 @@ struct RealTimeAudioProcessorTests {
             #expect(abs(outRaw[f * outChannels + 5] - 0.64) < 1e-6) // Tap Ch 64 (not truncated!)
         }
     }
+
+    @Test("Decoupled TapInput -> LockFreeAudioRingBuffer -> MonitorOutput isolates discrete channels with zero XRuns")
+    func decoupledRingBufferRoutesDiscreteChannelsCleanly() {
+        let frames = 256
+        let tapChannels = 64
+        let outChannels = 4
+
+        let routes = [
+            ChannelRoute(label: "Ref L", sourceChannel: 3, destinationChannel: 1),
+            ChannelRoute(label: "Ref R", sourceChannel: 4, destinationChannel: 2),
+            ChannelRoute(label: "LFE", sourceChannel: 64, destinationChannel: 3)
+        ]
+
+        let processor = RealTimeAudioProcessor(
+            initialSnapshot: RTRoutingSnapshot.build(routes: routes),
+            inputLayout: .interleaved(channelCount: tapChannels),
+            outputLayout: .interleaved(channelCount: outChannels)
+        )
+        processor.ringBuffer.configure(
+            sourceSampleRate: 48_000,
+            destinationSampleRate: 48_000,
+            sourceBufferFrames: frames,
+            destinationBufferFrames: frames
+        )
+
+        var inSamples = [Float](repeating: 0.0, count: tapChannels * frames)
+        for f in 0..<frames {
+            inSamples[f * tapChannels + 0] = 0.99  // Ch 1 (unrouted, must not bleed)
+            inSamples[f * tapChannels + 1] = -0.88 // Ch 2 (unrouted, must not bleed)
+            inSamples[f * tapChannels + 2] = 0.25  // Ch 3 -> Out 1
+            inSamples[f * tapChannels + 3] = -0.50 // Ch 4 -> Out 2
+            inSamples[f * tapChannels + 63] = 0.75 // Ch 64 -> Out 3
+        }
+
+        // Prime the ring buffer with 6 blocks from the tap producer.
+        inSamples.withUnsafeMutableBufferPointer { inPtr in
+            var inABL = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: UInt32(tapChannels),
+                    mDataByteSize: UInt32(inPtr.count * MemoryLayout<Float>.size),
+                    mData: UnsafeMutableRawPointer(inPtr.baseAddress!)
+                )
+            )
+            withUnsafePointer(to: &inABL) { inABLPtr in
+                for _ in 0..<6 {
+                    processor.processTapInput(inInputData: inABLPtr, frameCount: frames)
+                }
+            }
+        }
+
+        // Pull 2 blocks on the monitor output consumer (block 1 fades in over 64 frames; block 2 is steady-state unity).
+        var outSamples = [Float](repeating: 99.0, count: outChannels * frames)
+        outSamples.withUnsafeMutableBufferPointer { outPtr in
+            var outABL = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: UInt32(outChannels),
+                    mDataByteSize: UInt32(outPtr.count * MemoryLayout<Float>.size),
+                    mData: UnsafeMutableRawPointer(outPtr.baseAddress!)
+                )
+            )
+            withUnsafeMutablePointer(to: &outABL) { outABLPtr in
+                processor.processMonitorOutput(outOutputData: outABLPtr, frameCount: frames)
+                processor.processMonitorOutput(outOutputData: outABLPtr, frameCount: frames)
+            }
+        }
+
+        for f in 0..<frames {
+            #expect(abs(outSamples[f * outChannels + 0] - 0.25) < 1e-4)
+            #expect(abs(outSamples[f * outChannels + 1] - (-0.50)) < 1e-4)
+            #expect(abs(outSamples[f * outChannels + 2] - 0.75) < 1e-4)
+            #expect(outSamples[f * outChannels + 3] == 0.0)
+        }
+        let meters = processor.meterBank.consumeSnapshot(inputChannelCount: 64, outputChannelCount: 0)
+        #expect(meters.xrunCount == 0)
+        #expect(abs(meters.inputLevels[2].peakLinear - 0.25) < 1e-5)
+        #expect(abs(meters.inputLevels[63].peakLinear - 0.75) < 1e-5)
+    }
 }

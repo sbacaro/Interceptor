@@ -70,12 +70,18 @@ public struct RTRoutingSnapshot: Sendable {
 }
 
 /// Pure, zero-allocation, lock-free real-time unity-gain audio router invoked directly
-/// by Core Audio's `AudioDeviceIOProc`.
+/// by Core Audio's `AudioDeviceIOProc`s.
+///
+/// Supports both single-device loopback (`process`) and decoupled pro-audio tap-to-monitor
+/// operation (`processTapInput` + `processMonitorOutput`) through `ringBuffer`, resampling
+/// ONLY the active routed mono channels instead of 64+ unused hardware tap channels.
 public final class RealTimeAudioProcessor: @unchecked Sendable {
     public let routingBuffer: LockFreeTripleBuffer<RTRoutingSnapshot>
+    public let inputRoutingBuffer: LockFreeTripleBuffer<RTRoutingSnapshot>
+    public let ringBuffer: LockFreeAudioRingBuffer
     public let meterBank: AtomicMeterBank
 
-    /// Configured before `AudioDeviceStart`; read-only while the IOProc is running.
+    /// Configured before `AudioDeviceStart`; read-only while IOProcs are running.
     public private(set) var inputLayout: RTBufferLayoutMap
     public private(set) var outputLayout: RTBufferLayoutMap
 
@@ -85,12 +91,14 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         outputLayout: RTBufferLayoutMap = RTBufferLayoutMap()
     ) {
         self.routingBuffer = LockFreeTripleBuffer(initialValue: initialSnapshot)
+        self.inputRoutingBuffer = LockFreeTripleBuffer(initialValue: initialSnapshot)
+        self.ringBuffer = LockFreeAudioRingBuffer()
         self.meterBank = AtomicMeterBank()
         self.inputLayout = inputLayout
         self.outputLayout = outputLayout
     }
 
-    /// Updates buffer layouts while the audio device is stopped.
+    /// Updates buffer layouts while the audio devices are stopped.
     public func configure(
         inputLayout: RTBufferLayoutMap,
         outputLayout: RTBufferLayoutMap
@@ -99,9 +107,136 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         self.outputLayout = outputLayout
     }
 
-    /// Publishes updated mono channel patches to the real-time thread without stopping audio.
+    /// Publishes updated mono channel patches to both real-time threads without stopping audio.
     public func updateRouting(_ snapshot: RTRoutingSnapshot) {
+        inputRoutingBuffer.write(snapshot)
         routingBuffer.write(snapshot)
+    }
+
+    /// Producer audio thread (Tap-Only Private Aggregate, zero ASRC):
+    /// extracts ONLY active routed mono channels into `ringBuffer` and tracks lightweight visual peak gain.
+    @inline(__always)
+    public func processTapInput(
+        inInputData: UnsafePointer<AudioBufferList>?,
+        frameCount: Int
+    ) {
+        guard frameCount > 0, let inABL = inInputData else { return }
+        let inBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inABL))
+        let inBufCount = inBuffers.count
+
+        let snapshotPtr = inputRoutingBuffer.readLatestPointer()
+        let patchCount = min(snapshotPtr.pointee.patchCount, LockFreeAudioRingBuffer.maxChannels)
+        guard patchCount > 0 else { return }
+
+        let baseWriteFrame = ringBuffer.beginWrite(frameCount: frameCount)
+
+        for p in 0..<patchCount {
+            let patch = snapshotPtr.pointee.patches[p]
+            guard patch.isActive else {
+                for f in 0..<frameCount {
+                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
+                }
+                continue
+            }
+
+            let srcChannel = Int(patch.sourceChannel)
+            let srcAddr = inputLayout[srcChannel]
+            guard srcAddr.isValid else {
+                for f in 0..<frameCount {
+                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
+                }
+                continue
+            }
+
+            let srcBufIdx = Int(srcAddr.bufferIndex)
+            let srcStride = Int(srcAddr.stride)
+            let srcOffset = Int(srcAddr.channelOffset)
+            guard srcBufIdx < inBufCount,
+                  Int(inBuffers[srcBufIdx].mNumberChannels) == srcStride,
+                  let srcRaw = inBuffers[srcBufIdx].mData else {
+                for f in 0..<frameCount {
+                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
+                }
+                continue
+            }
+
+            let srcMax = Int(inBuffers[srcBufIdx].mDataByteSize) / MemoryLayout<Float>.size
+            guard srcOffset + (frameCount - 1) * srcStride < srcMax else {
+                for f in 0..<frameCount {
+                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
+                }
+                continue
+            }
+
+            let srcPtr = srcRaw.assumingMemoryBound(to: Float.self)
+            var sIdx = srcOffset
+            var peak: Float = 0.0
+
+            for f in 0..<frameCount {
+                let sample = srcPtr[sIdx]
+                ringBuffer.storeSample(sample, slot: p, frame: baseWriteFrame &+ UInt64(f))
+                let mag = fabsf(sample)
+                if mag > peak { peak = mag }
+                sIdx += srcStride
+            }
+
+            // Visual gain peak only (zero sqrtf RMS overhead on the real-time audio thread).
+            meterBank.recordInput(channel: srcChannel, peak: peak, rms: peak * 0.70710678)
+        }
+
+        ringBuffer.commitWrite(newWriteIndex: baseWriteFrame &+ UInt64(frameCount))
+    }
+
+    /// Consumer audio thread (Direct Monitor Output Device):
+    /// reads ONLY active routed channels from `ringBuffer` with PI drift compensation + cubic Hermite
+    /// resampling and sums each slot into its patched monitor output channel.
+    @inline(__always)
+    public func processMonitorOutput(
+        outOutputData: UnsafeMutablePointer<AudioBufferList>?,
+        frameCount: Int
+    ) {
+        guard frameCount > 0, let outABL = outOutputData else { return }
+
+        let outBuffers = UnsafeMutableAudioBufferListPointer(outABL)
+        let outBufCount = outBuffers.count
+
+        for b in 0..<outBufCount {
+            let byteCount = Int(outBuffers[b].mDataByteSize)
+            if let data = outBuffers[b].mData, byteCount > 0 {
+                memset(data, 0, byteCount)
+            }
+        }
+
+        let snapshotPtr = routingBuffer.readLatestPointer()
+        let patchCount = min(snapshotPtr.pointee.patchCount, LockFreeAudioRingBuffer.maxChannels)
+        guard patchCount > 0 else { return }
+
+        _ = ringBuffer.readResampled(
+            activeSlots: patchCount,
+            outputFrameCount: frameCount,
+            onXRun: { [meterBank] in
+                meterBank.recordXRun()
+            }
+        ) { slot, frame, sample in
+            let patch = snapshotPtr.pointee.patches[slot]
+            guard patch.isActive else { return }
+            let dstChannel = Int(patch.destinationChannel)
+            let dstAddr = outputLayout[dstChannel]
+            guard dstAddr.isValid else { return }
+
+            let dstBufIdx = Int(dstAddr.bufferIndex)
+            let dstStride = Int(dstAddr.stride)
+            let dstOffset = Int(dstAddr.channelOffset)
+            guard dstBufIdx < outBufCount,
+                  Int(outBuffers[dstBufIdx].mNumberChannels) == dstStride,
+                  let dstRaw = outBuffers[dstBufIdx].mData else { return }
+
+            let dstMax = Int(outBuffers[dstBufIdx].mDataByteSize) / MemoryLayout<Float>.size
+            let dIdx = dstOffset + frame * dstStride
+            guard dIdx < dstMax else { return }
+
+            dstRaw.assumingMemoryBound(to: Float.self)[dIdx] += sample
+        }
     }
 
     /// Core real-time render routine: zero heap allocations, zero locks, bit-transparent unity routing.
@@ -210,6 +345,64 @@ public func interceptorAudioDeviceIOProc(
 
     if frameCount > 0 {
         processor.process(inInputData: inInputData, outOutputData: outOutputData, frameCount: frameCount)
+    }
+    return noErr
+}
+
+/// C-compatible Core Audio IOProc for the Tap-Only Private Aggregate input thread (zero ASRC).
+public func interceptorTapInputIOProc(
+    inDevice: AudioObjectID,
+    inNow: UnsafePointer<AudioTimeStamp>,
+    inInputData: UnsafePointer<AudioBufferList>,
+    inInputTime: UnsafePointer<AudioTimeStamp>,
+    outOutputData: UnsafeMutablePointer<AudioBufferList>,
+    inOutputTime: UnsafePointer<AudioTimeStamp>,
+    inClientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData = inClientData else { return noErr }
+    let processor = Unmanaged<RealTimeAudioProcessor>.fromOpaque(clientData).takeUnretainedValue()
+
+    let inBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inInputData))
+    var frameCount = 0
+    for b in 0..<inBuffers.count {
+        let ch = Int(inBuffers[b].mNumberChannels)
+        if ch > 0 && inBuffers[b].mDataByteSize > 0 {
+            frameCount = Int(inBuffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
+            break
+        }
+    }
+
+    if frameCount > 0 {
+        processor.processTapInput(inInputData: inInputData, frameCount: frameCount)
+    }
+    return noErr
+}
+
+/// C-compatible Core Audio IOProc for the direct Monitor Output device thread.
+public func interceptorMonitorOutputIOProc(
+    inDevice: AudioObjectID,
+    inNow: UnsafePointer<AudioTimeStamp>,
+    inInputData: UnsafePointer<AudioBufferList>,
+    inInputTime: UnsafePointer<AudioTimeStamp>,
+    outOutputData: UnsafeMutablePointer<AudioBufferList>,
+    inOutputTime: UnsafePointer<AudioTimeStamp>,
+    inClientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData = inClientData else { return noErr }
+    let processor = Unmanaged<RealTimeAudioProcessor>.fromOpaque(clientData).takeUnretainedValue()
+
+    let outBuffers = UnsafeMutableAudioBufferListPointer(outOutputData)
+    var frameCount = 0
+    for b in 0..<outBuffers.count {
+        let ch = Int(outBuffers[b].mNumberChannels)
+        if ch > 0 && outBuffers[b].mDataByteSize > 0 {
+            frameCount = Int(outBuffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
+            break
+        }
+    }
+
+    if frameCount > 0 {
+        processor.processMonitorOutput(outOutputData: outOutputData, frameCount: frameCount)
     }
     return noErr
 }
