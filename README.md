@@ -89,6 +89,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 | `⇧⌘N` | Create new virtual routing bridge |
 | `⇧⌘R` | Refresh Core Audio interfaces & active applications |
 | `⌘I` | Toggle Bridge Info popover (rates, latency, XRuns) |
+| `⌘E` | Open Events diagnostic log window |
 | `⌘,` | Open Settings |
 
 ## Architecture
