@@ -11,10 +11,12 @@ struct RouteRowView: View {
     let validationIssues: [RouteValidationIssue]
     let onUpdate: (ChannelRoute) -> Void
     let onRemove: () -> Void
+    var onResetClips: (() -> Void)? = nil
 
     @State private var isHovering = false
     @State private var isEditingName = false
     @State private var draftName = ""
+    @State private var wasNameFieldFocused = false
     @FocusState private var isNameFieldFocused: Bool
 
     var body: some View {
@@ -47,7 +49,7 @@ struct RouteRowView: View {
                     )
                 }
 
-                LiveChannelVUMeterView(meterModel: meterModel)
+                LiveChannelVUMeterView(meterModel: meterModel, onResetClips: onResetClips)
 
                 Button(role: .destructive, action: onRemove) {
                     Image(systemName: "minus.circle.fill")
@@ -89,14 +91,20 @@ struct RouteRowView: View {
                 .controlSize(.small)
                 .font(.callout.weight(.medium))
                 .focused($isNameFieldFocused)
+                .onAppear {
+                    isNameFieldFocused = true
+                }
                 .onSubmit {
                     commitNameEdit()
                 }
                 .onExitCommand {
                     isEditingName = false
+                    wasNameFieldFocused = false
                 }
                 .onChange(of: isNameFieldFocused) { _, focused in
-                    if !focused && isEditingName {
+                    if focused {
+                        wasNameFieldFocused = true
+                    } else if wasNameFieldFocused && isEditingName {
                         commitNameEdit()
                     }
                 }
@@ -109,8 +117,8 @@ struct RouteRowView: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     draftName = route.label
+                    wasNameFieldFocused = false
                     isEditingName = true
-                    isNameFieldFocused = true
                 }
                 .help("Click to rename channel")
         }
@@ -124,6 +132,7 @@ struct RouteRowView: View {
             onUpdate(updated)
         }
         isEditingName = false
+        wasNameFieldFocused = false
     }
 
     @ViewBuilder

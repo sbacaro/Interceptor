@@ -4,7 +4,7 @@ import Foundation
 /// channel (`1...N`) to a monitor destination output channel (`1...M`).
 /// Signal pass-through is strictly unity gain (bit-transparent when 1-to-1).
 public struct ChannelRoute: Codable, Sendable, Hashable, Identifiable {
-    public static let maxChannelLimit = 64
+    public static let maxChannelLimit = 128
 
     public var id: UUID
     public var label: String
@@ -26,6 +26,25 @@ public struct ChannelRoute: Codable, Sendable, Hashable, Identifiable {
         self.isEnabled = isEnabled
         self.sourceChannel = max(1, sourceChannel)
         self.destinationChannel = max(1, destinationChannel)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case isEnabled
+        case sourceChannel
+        case destinationChannel
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.label = try container.decode(String.self, forKey: .label)
+        self.isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        let decodedSource = try container.decode(Int.self, forKey: .sourceChannel)
+        let decodedDest = try container.decode(Int.self, forKey: .destinationChannel)
+        self.sourceChannel = max(1, decodedSource)
+        self.destinationChannel = max(1, decodedDest)
     }
 
     public var sourceChannelDescription: String { "Ch \(sourceChannel)" }
@@ -82,16 +101,22 @@ public enum RouteValidator {
         for route in routes {
             var issues: [RouteValidationIssue] = []
 
-            if let src = sourceDevice, route.sourceChannel > src.totalOutputChannels {
-                issues.append(
-                    .sourceChannelOutOfRange(
-                        requested: route.sourceChannel,
-                        available: src.totalOutputChannels
+            if let src = sourceDevice {
+                let isSourceValid = src.outputStreams.isEmpty
+                    ? (route.sourceChannel >= 1 && route.sourceChannel <= src.totalOutputChannels)
+                    : (src.streamLocation(forLogicalChannel: route.sourceChannel) != nil)
+                if !isSourceValid {
+                    issues.append(
+                        .sourceChannelOutOfRange(
+                            requested: route.sourceChannel,
+                            available: src.maxLogicalOutputChannel
+                        )
                     )
-                )
+                }
             }
 
-            if let dst = destinationDevice, route.destinationChannel > dst.totalOutputChannels {
+            if let dst = destinationDevice,
+               route.destinationChannel < 1 || route.destinationChannel > dst.totalOutputChannels {
                 issues.append(
                     .destinationChannelOutOfRange(
                         requested: route.destinationChannel,

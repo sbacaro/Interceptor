@@ -16,18 +16,29 @@ public struct SemanticVersion: Comparable, Equatable, Sendable, CustomStringConv
     }
 
     public init?(parsing raw: String) {
-        let cleaned = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .drop(while: { $0 == "v" || $0 == "V" })
-            .split(separator: "-", maxSplits: 1)
-            .first
-            .map(String.init) ?? ""
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while cleaned.first == "v" || cleaned.first == "V" {
+            cleaned.removeFirst()
+        }
+        if let plusIdx = cleaned.firstIndex(of: "+") {
+            cleaned = String(cleaned[..<plusIdx])
+        }
+        // Reject prerelease tags (e.g. 1.0.6-beta.1) so they are never treated as stable releases.
+        guard !cleaned.isEmpty, !cleaned.contains("-") else { return nil }
 
-        let parts = cleaned.split(separator: ".").compactMap { Int($0) }
-        guard !parts.isEmpty else { return nil }
-        self.major = parts[0]
-        self.minor = parts.count > 1 ? parts[1] : 0
-        self.patch = parts.count > 2 ? parts[2] : 0
+        let rawParts = cleaned.split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...3).contains(rawParts.count) else { return nil }
+
+        var nums: [Int] = []
+        nums.reserveCapacity(rawParts.count)
+        for part in rawParts {
+            guard !part.isEmpty, let value = Int(part), value >= 0 else { return nil }
+            nums.append(value)
+        }
+
+        self.major = nums[0]
+        self.minor = nums.count > 1 ? nums[1] : 0
+        self.patch = nums.count > 2 ? nums[2] : 0
     }
 
     public var description: String { "\(major).\(minor).\(patch)" }
@@ -170,8 +181,9 @@ public final class GitHubReleaseUpdater {
 
                 guard let zipAsset = release.assets.first(where: {
                     $0.name.lowercased().hasSuffix(".zip")
-                }), let downloadURL = URL(string: zipAsset.browserDownloadURL) else {
-                    self.state = .error("Release \(release.tagName) does not contain a macOS .zip asset.")
+                }), let downloadURL = URL(string: zipAsset.browserDownloadURL),
+                   Self.isTrustedGitHubURL(downloadURL) else {
+                    self.state = .error("Release \(release.tagName) does not contain a valid macOS .zip asset.")
                     return
                 }
 
@@ -212,8 +224,12 @@ public final class GitHubReleaseUpdater {
                 .appendingPathComponent("InterceptorUpdate-\(UUID().uuidString)", isDirectory: true)
 
             do {
+                guard Self.isTrustedGitHubURL(update.downloadURL) else {
+                    throw UpdaterError.installFailed("Untrusted release download URL.")
+                }
+
                 try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-                let zipURL = tempRoot.appendingPathComponent(update.assetName)
+                let zipURL = tempRoot.appendingPathComponent("update.zip")
 
                 try await self.downloadAsset(
                     from: update.downloadURL,
@@ -231,15 +247,15 @@ public final class GitHubReleaseUpdater {
                 try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
                 let extractedAppURL = try await Task.detached(priority: .userInitiated) {
-                    try Self.extractAndVerifyApp(zipURL: zipURL, extractDir: extractDir)
+                    try Self.extractAndVerifyApp(
+                        zipURL: zipURL,
+                        extractDir: extractDir,
+                        expectedVersion: update.version
+                    )
                 }.value
 
                 let targetAppURL = self.resolvedInstallDestination()
                 let needsAdmin = self.requiresAdministratorPrivileges(for: targetAppURL)
-
-                // Gracefully stop all Core Audio taps/aggregates and let any dismissed sheet close cleanly.
-                onBeforeReplace()
-                try? await Task.sleep(for: .milliseconds(150))
 
                 if needsAdmin {
                     let result = try await Task.detached(priority: .userInitiated) {
@@ -255,10 +271,16 @@ public final class GitHubReleaseUpdater {
                         return
                     }
 
-                    Self.spawnDetachedRelaunch(targetApp: targetAppURL, tempRoot: tempRoot, currentPID: getpid())
+                    onBeforeReplace()
+                    try? await Task.sleep(for: .milliseconds(150))
+
+                    try Self.spawnDetachedRelaunch(targetApp: targetAppURL, tempRoot: tempRoot, currentPID: getpid())
                     exit(0)
                 } else {
-                    Self.spawnDetachedReplaceAndRelaunch(
+                    onBeforeReplace()
+                    try? await Task.sleep(for: .milliseconds(150))
+
+                    try Self.spawnDetachedReplaceAndRelaunch(
                         sourceApp: extractedAppURL,
                         targetApp: targetAppURL,
                         tempRoot: tempRoot,
@@ -290,6 +312,7 @@ public final class GitHubReleaseUpdater {
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("Interceptor/\(currentVersionString)", forHTTPHeaderField: "User-Agent")
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -299,7 +322,7 @@ public final class GitHubReleaseUpdater {
         switch http.statusCode {
         case 200:
             return try JSONDecoder().decode(GitHubReleaseDTO.self, from: data)
-        case 403:
+        case 403, 429:
             throw UpdaterError.rateLimited
         case 404:
             throw UpdaterError.notFound
@@ -321,7 +344,8 @@ public final class GitHubReleaseUpdater {
             destination: destination,
             onProgress: { [weak self] progress in
                 Task { @MainActor [weak self] in
-                    self?.state = .downloading(progress: progress)
+                    guard let self, case .downloading = self.state else { return }
+                    self.state = .downloading(progress: progress)
                 }
             }
         )
@@ -334,10 +358,22 @@ public final class GitHubReleaseUpdater {
         } onCancel: {
             delegate.cancel()
         }
-        state = .downloading(progress: 1.0)
+        if case .downloading = state {
+            state = .downloading(progress: 1.0)
+        }
     }
 
     // MARK: - Verification & Install Helpers
+
+    private nonisolated static func isTrustedGitHubURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        return host == "github.com" ||
+            host.hasSuffix(".github.com") ||
+            host.hasSuffix(".githubusercontent.com")
+    }
 
     private func resolvedInstallDestination() -> URL {
         let currentBundle = Bundle.main.bundleURL
@@ -361,21 +397,59 @@ public final class GitHubReleaseUpdater {
         return false
     }
 
-    private nonisolated static func extractAndVerifyApp(zipURL: URL, extractDir: URL) throws -> URL {
+    private nonisolated static func readErrorAndWait(_ process: Process, errorPipe: Pipe) -> (status: Int32, stderr: String) {
+        let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let msg = String(data: errData, encoding: .utf8) ?? ""
+        return (process.terminationStatus, msg)
+    }
+
+    private nonisolated static func findAppBundle(in extractDir: URL) -> URL? {
+        let fm = FileManager.default
+        let directApp = extractDir.appendingPathComponent("Interceptor.app", isDirectory: true)
+        if fm.fileExists(atPath: directApp.path) {
+            return directApp
+        }
+
+        guard let topEntries = try? fm.contentsOfDirectory(
+            at: extractDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        for entry in topEntries where entry.lastPathComponent != "__MACOSX" {
+            if entry.pathExtension == "app", entry.lastPathComponent == "Interceptor.app" {
+                return entry
+            }
+            if (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                let nested = entry.appendingPathComponent("Interceptor.app", isDirectory: true)
+                if fm.fileExists(atPath: nested.path) {
+                    return nested
+                }
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func extractAndVerifyApp(
+        zipURL: URL,
+        extractDir: URL,
+        expectedVersion: SemanticVersion
+    ) throws -> URL {
         let ditto = Process()
         ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         ditto.arguments = ["-xk", zipURL.path, extractDir.path]
         let dittoErr = Pipe()
         ditto.standardError = dittoErr
         try ditto.run()
-        ditto.waitUntilExit()
-        guard ditto.terminationStatus == 0 else {
-            let msg = String(data: dittoErr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw UpdaterError.installFailed("Failed to extract update archive: \(msg)")
+        let dittoResult = readErrorAndWait(ditto, errorPipe: dittoErr)
+        guard dittoResult.status == 0 else {
+            throw UpdaterError.installFailed("Failed to extract update archive: \(dittoResult.stderr)")
         }
 
-        let extractedApp = extractDir.appendingPathComponent("Interceptor.app", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: extractedApp.path) else {
+        guard let extractedApp = findAppBundle(in: extractDir) else {
             throw UpdaterError.installFailed("Interceptor.app was not found inside the release archive.")
         }
 
@@ -384,14 +458,20 @@ public final class GitHubReleaseUpdater {
             throw UpdaterError.installFailed("Downloaded application bundle identifier does not match Interceptor.")
         }
 
+        guard let versionString = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              let bundleVersion = SemanticVersion(parsing: versionString),
+              bundleVersion >= expectedVersion else {
+            throw UpdaterError.installFailed("Downloaded application version does not match release \(expectedVersion.description).")
+        }
+
         let codesign = Process()
         codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         codesign.arguments = ["--verify", "--deep", "--strict", extractedApp.path]
         let signErr = Pipe()
         codesign.standardError = signErr
         try codesign.run()
-        codesign.waitUntilExit()
-        guard codesign.terminationStatus == 0 else {
+        let signResult = readErrorAndWait(codesign, errorPipe: signErr)
+        guard signResult.status == 0 else {
             throw UpdaterError.installFailed("Downloaded application failed code signature verification.")
         }
 
@@ -409,7 +489,16 @@ public final class GitHubReleaseUpdater {
     ) throws -> AdminInstallOutcome {
         let src = shellQuoted(sourceApp.path)
         let dst = shellQuoted(targetApp.path)
-        let shellCmd = "rm -rf \(dst) && /usr/bin/ditto \(src) \(dst) && (/usr/bin/xattr -dr com.apple.quarantine \(dst) 2>/dev/null || true)"
+        let dstNew = shellQuoted(targetApp.path + ".new")
+        let dstBak = shellQuoted(targetApp.path + ".backup")
+        let shellCmd = """
+        rm -rf \(dstNew) \(dstBak) && \
+        /usr/bin/ditto \(src) \(dstNew) && \
+        (/usr/bin/xattr -dr com.apple.quarantine \(dstNew) 2>/dev/null || true) && \
+        ( [ ! -e \(dst) ] || mv \(dst) \(dstBak) ) && \
+        ( mv \(dstNew) \(dst) || ( [ -e \(dstBak) ] && mv \(dstBak) \(dst); exit 1 ) ) && \
+        rm -rf \(dstBak)
+        """
         let escapedForAppleScript = shellCmd
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -421,17 +510,16 @@ public final class GitHubReleaseUpdater {
         let errPipe = Pipe()
         process.standardError = errPipe
         try process.run()
-        process.waitUntilExit()
+        let result = readErrorAndWait(process, errorPipe: errPipe)
 
-        if process.terminationStatus == 0 {
+        if result.status == 0 {
             return .installed
         }
 
-        let errOutput = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        if errOutput.contains("-128") || errOutput.localizedCaseInsensitiveContains("User canceled") {
+        if result.stderr.contains("-128") || result.stderr.localizedCaseInsensitiveContains("User canceled") {
             return .cancelled
         }
-        throw UpdaterError.installFailed(errOutput.trimmingCharacters(in: .whitespacesAndNewlines))
+        throw UpdaterError.installFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private nonisolated static func spawnDetachedReplaceAndRelaunch(
@@ -439,22 +527,32 @@ public final class GitHubReleaseUpdater {
         targetApp: URL,
         tempRoot: URL,
         currentPID: pid_t
-    ) {
+    ) throws {
         let script = """
         PID="$1"
         SRC="$2"
         DST="$3"
         TMP="$4"
+        DST_NEW="${DST}.new"
+        DST_BAK="${DST}.backup"
         i=0
         while kill -0 "$PID" 2>/dev/null && [ "$i" -lt 50 ]; do
             sleep 0.2
             i=$((i + 1))
         done
-        rm -rf "$DST"
-        /usr/bin/ditto "$SRC" "$DST"
-        /usr/bin/xattr -dr com.apple.quarantine "$DST" 2>/dev/null || true
-        /usr/bin/open "$DST"
-        rm -rf "$TMP"
+        rm -rf "$DST_NEW" "$DST_BAK"
+        if /usr/bin/ditto "$SRC" "$DST_NEW"; then
+            /usr/bin/xattr -dr com.apple.quarantine "$DST_NEW" 2>/dev/null || true
+            if [ ! -e "$DST" ] || mv "$DST" "$DST_BAK"; then
+                if mv "$DST_NEW" "$DST"; then
+                    rm -rf "$DST_BAK"
+                else
+                    [ -e "$DST_BAK" ] && mv "$DST_BAK" "$DST"
+                fi
+            fi
+        fi
+        /usr/bin/open -n "$DST"
+        rm -rf "$TMP" "$DST_NEW"
         """
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -462,14 +560,14 @@ public final class GitHubReleaseUpdater {
         proc.standardInput = FileHandle.nullDevice
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
-        try? proc.run()
+        try proc.run()
     }
 
     private nonisolated static func spawnDetachedRelaunch(
         targetApp: URL,
         tempRoot: URL,
         currentPID: pid_t
-    ) {
+    ) throws {
         let script = """
         PID="$1"
         DST="$2"
@@ -488,7 +586,7 @@ public final class GitHubReleaseUpdater {
         proc.standardInput = FileHandle.nullDevice
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
-        try? proc.run()
+        try proc.run()
     }
 
     private nonisolated static func shellQuoted(_ path: String) -> String {
@@ -509,6 +607,7 @@ private final class FastAssetDownloadDelegate: NSObject, URLSessionDownloadDeleg
     private var task: URLSessionDownloadTask?
     private var lastReportedProgress: Double = -1.0
     private var didMoveFile = false
+    private var isCancelled = false
 
     init(
         expectedBytes: Int64,
@@ -521,18 +620,24 @@ private final class FastAssetDownloadDelegate: NSObject, URLSessionDownloadDeleg
     }
 
     func start(with session: URLSession, request: URLRequest) async throws {
-        try await withCheckedThrowingContinuation { cont in
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             lock.lock()
-            continuation = cont
-            let downloadTask = session.downloadTask(with: request)
-            task = downloadTask
-            lock.unlock()
-            downloadTask.resume()
+            if isCancelled {
+                lock.unlock()
+                cont.resume(throwing: CancellationError())
+            } else {
+                continuation = cont
+                let downloadTask = session.downloadTask(with: request)
+                task = downloadTask
+                lock.unlock()
+                downloadTask.resume()
+            }
         }
     }
 
     func cancel() {
         lock.lock()
+        isCancelled = true
         let active = task
         lock.unlock()
         active?.cancel()
@@ -590,7 +695,11 @@ private final class FastAssetDownloadDelegate: NSObject, URLSessionDownloadDeleg
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
-            finish(with: .failure(error))
+            if let urlErr = error as? URLError, urlErr.code == .cancelled {
+                finish(with: .failure(CancellationError()))
+            } else {
+                finish(with: .failure(error))
+            }
             return
         }
         lock.lock()

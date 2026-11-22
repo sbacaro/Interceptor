@@ -87,6 +87,7 @@ private struct BridgeSidebarRow: View {
 
     @State private var isEditingName = false
     @State private var draftName = ""
+    @State private var wasNameFocused = false
     @FocusState private var isNameFocused: Bool
 
     var body: some View {
@@ -98,10 +99,18 @@ private struct BridgeSidebarRow: View {
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.small)
                         .focused($isNameFocused)
+                        .onAppear { isNameFocused = true }
                         .onSubmit { commitRename() }
-                        .onExitCommand { isEditingName = false }
+                        .onExitCommand {
+                            isEditingName = false
+                            wasNameFocused = false
+                        }
                         .onChange(of: isNameFocused) { _, focused in
-                            if !focused && isEditingName { commitRename() }
+                            if focused {
+                                wasNameFocused = true
+                            } else if wasNameFocused && isEditingName {
+                                commitRename()
+                            }
                         }
                 } else {
                     Text(bridge.name)
@@ -109,8 +118,8 @@ private struct BridgeSidebarRow: View {
                         .lineLimit(1)
                         .onTapGesture(count: 2) {
                             draftName = bridge.name
+                            wasNameFocused = false
                             isEditingName = true
-                            isNameFocused = true
                         }
                 }
 
@@ -143,6 +152,7 @@ private struct BridgeSidebarRow: View {
             onRename(trimmed)
         }
         isEditingName = false
+        wasNameFocused = false
     }
 }
 

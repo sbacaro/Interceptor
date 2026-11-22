@@ -61,11 +61,13 @@ struct InterceptorCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
+                appDelegate.viewModel = viewModel
                 appDelegate.showMainWindow(openSettings: true)
             }
             .keyboardShortcut(",", modifiers: .command)
 
             Button("Check for Updates…") {
+                appDelegate.viewModel = viewModel
                 appDelegate.showMainWindow(openSettings: true)
                 viewModel.checkForUpdates()
             }

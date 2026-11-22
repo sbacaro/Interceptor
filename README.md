@@ -6,14 +6,14 @@ A native macOS audio stream tap and discrete mono channel router written entirel
 
 DAWs such as Pro Tools rely on a single Playback Engine and strict hardware clock ownership, making it difficult to monitor through a separate physical audio interface without creating system-wide aggregate devices or virtual routing drivers that introduce clock instability.
 
-**Interceptor** passively taps any Core Audio output stream (`AudioHardwareCreateProcessTap` + `CATapDescription`) directly inside `coreaudiod` — **unmuted (`CATapUnmuted`), non-exclusive, and without touching the source interface's clock or Playback Engine** — and routes discrete mono channels to any monitoring audio interface using a private Core Audio Aggregate Device with native maximum-quality `AudioSubTap` drift compensation.
+**Interceptor** passively taps any Core Audio output stream (`AudioHardwareCreateProcessTap` + `CATapDescription`) directly inside `coreaudiod` — **unmuted (`CATapUnmuted`), non-exclusive, and without touching the source interface's clock or Playback Engine** — using a Tap-Only Private Aggregate capture (`kAudioSubTapDriftCompensationKey: false`) paired with a wait-free SPSC `LockFreeAudioRingBuffer` with PI-controlled 4-point cubic Hermite drift compensation and sample-rate conversion for only the active routed channels.
 
 ## Key Features
 
-- **100% Interface-Agnostic**: Works with any Core Audio output interface (USB, Thunderbolt, PCIe, Network/Dante/AVB, Virtual Bridges, Built-in) across single-stream and multi-stream devices up to 64+ channels.
+- **100% Interface-Agnostic**: Works with any Core Audio output interface (USB, Thunderbolt, PCIe, Network/Dante/AVB, Virtual Bridges, Built-in) across single-stream and multi-stream devices up to 128 channels.
 - **Virtual Devices Organization**: Organize independent passive routing bridges (e.g., *Main Monitor*, *Headphones*) and run multiple bridges simultaneously with automatic persistence.
-- **Discrete Mono Channel Patching**: Route any source output channel (`Ch 1…N`) to any monitor output channel (`Out 1…M`) at bit-transparent unity gain with live lock-free edits and per-channel studio dBFS VU meters.
-- **Zero-Allocation Real-Time Audio Engine**: `@convention(c)` `AudioDeviceIOProc` trampoline backed by a wait-free SPSC triple buffer (`Synchronization.Atomic`) and lock-free atomic metering.
+- **Discrete Mono Channel Patching**: Route any source output channel (`Ch 1…N`) to any monitor output channel (`Out 1…M`) at unity gain (bit-transparent when clocks align) with live lock-free edits and GPU-composited (`CALayer`) studio dBFS VU meters.
+- **Zero-Allocation Real-Time Audio Engine**: Decoupled C `@convention(c)` `AudioDeviceIOProc` trampolines backed by a wait-free 128-slot planar `LockFreeAudioRingBuffer`, wait-free `LockFreeTripleBuffer` (`Synchronization.Atomic`) routing updates, and lock-free atomic metering.
 - **Optional Process Scope**: Tap all processes on the source device stream (always excluding Interceptor itself to prevent feedback) or scope to a specific commercial application with automatic bundle-ID restoration.
 - **Native macOS Integration**: Native Xcode project, String Catalogs (`.xcstrings`), Display P3 Asset Catalog (`AppIcon`, `AccentColor`), Privacy Manifest (`PrivacyInfo.xcprivacy`), Menu Bar companion, automatic hot-plug reconnection, and sample-rate change recovery.
 

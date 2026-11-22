@@ -143,6 +143,10 @@ public final class InterceptorEngine {
                 bridges[i].destinationDeviceName = dst.name
                 didUpdateNames = true
             }
+            let id = bridges[i].id
+            if telemetry(for: id).state == .idle {
+                telemetryByBridgeID[id] = makeIdleTelemetry(for: bridges[i])
+            }
         }
         if didUpdateNames {
             persistBridges()
@@ -168,7 +172,7 @@ public final class InterceptorEngine {
             ]
         )
         bridges.append(newBridge)
-        telemetryByBridgeID[newBridge.id] = EngineTelemetry(activeRouteCount: 2)
+        telemetryByBridgeID[newBridge.id] = makeIdleTelemetry(for: newBridge)
         persistBridges()
         return newBridge
     }
@@ -193,7 +197,7 @@ public final class InterceptorEngine {
             }
         )
         bridges.append(copy)
-        telemetryByBridgeID[copy.id] = EngineTelemetry(activeRouteCount: copy.routes.filter(\.isEnabled).count)
+        telemetryByBridgeID[copy.id] = makeIdleTelemetry(for: copy)
         persistBridges()
         return copy
     }
@@ -229,9 +233,25 @@ public final class InterceptorEngine {
             previous.processTarget != normalized.processTarget
 
         guard let runtime = runtimes[normalized.id], runtime.desiredActive else {
-            var t = telemetry(for: normalized.id)
-            t.activeRouteCount = normalized.routes.filter(\.isEnabled).count
-            telemetryByBridgeID[normalized.id] = t
+            let currentState = telemetry(for: normalized.id).state
+            let shouldResetToIdle: Bool = {
+                switch currentState {
+                case .idle:
+                    return true
+                case .error:
+                    return structuralChange
+                default:
+                    return false
+                }
+            }()
+
+            if shouldResetToIdle {
+                telemetryByBridgeID[normalized.id] = makeIdleTelemetry(for: normalized)
+            } else {
+                var t = telemetry(for: normalized.id)
+                t.activeRouteCount = normalized.routes.filter(\.isEnabled).count
+                telemetryByBridgeID[normalized.id] = t
+            }
             return
         }
 
@@ -253,6 +273,10 @@ public final class InterceptorEngine {
                 t.activeRouteCount = normalized.routes.filter(\.isEnabled).count
                 telemetryByBridgeID[normalized.id] = t
             }
+        } else {
+            var t = telemetry(for: normalized.id)
+            t.activeRouteCount = normalized.routes.filter(\.isEnabled).count
+            telemetryByBridgeID[normalized.id] = t
         }
     }
 
@@ -342,23 +366,7 @@ public final class InterceptorEngine {
             runtime.activeTappedStreams = []
         }
 
-        let config = bridge(for: id)
-        let src = config.flatMap { sourceDevice(for: $0) }
-        let dst = config.flatMap { destinationDevice(for: $0) }
-        telemetryByBridgeID[id] = EngineTelemetry(
-            state: .idle,
-            sourceSampleRate: src?.nominalSampleRate ?? 0,
-            destinationSampleRate: dst?.nominalSampleRate ?? 0,
-            bufferFrames: dst?.bufferFrameSize ?? 0,
-            estimatedLatencyMs: 0,
-            driftCompensationActive: false,
-            driftCompensationQuality: UInt32(kAudioAggregateDriftCompensationMaxQuality),
-            xrunCount: 0,
-            isSourceExclusive: false,
-            tappedStreamCount: 0,
-            activeRouteCount: config?.routes.filter(\.isEnabled).count ?? 0,
-            activeOutputChannelCount: dst?.totalOutputChannels ?? 0
-        )
+        telemetryByBridgeID[id] = makeIdleTelemetry(for: bridge(for: id))
     }
 
     public func toggleBridge(id: UUID) {
@@ -390,6 +398,22 @@ public final class InterceptorEngine {
         return runtime.tapBridge.processor.meterBank.consumeInputLevel(channel: tapIdx)
     }
 
+    /// Synchronizes XRun counts from running bridges into observable telemetry only when changed.
+    public func syncXRunCounts() {
+        for (id, runtime) in runtimes where telemetryByBridgeID[id]?.state.isRunning == true {
+            let currentXRuns = runtime.tapBridge.processor.meterBank.xrunCount
+            if var t = telemetryByBridgeID[id], t.xrunCount != currentXRuns {
+                t.xrunCount = currentXRuns
+                telemetryByBridgeID[id] = t
+            }
+        }
+    }
+
+    /// Clears all latched clip indicators for a given bridge.
+    public func resetClips(forBridgeID id: UUID) {
+        runtimes[id]?.tapBridge.processor.meterBank.resetClips()
+    }
+
     /// Consumes per-channel input activity snapshot for a running bridge (for subtle live indicators).
     public func consumeActivitySnapshot(forBridgeID id: UUID) -> MeterFrameSnapshot {
         guard let runtime = runtimes[id], let info = runtime.tapBridge.activeInfo else {
@@ -414,6 +438,25 @@ public final class InterceptorEngine {
 
     // MARK: - Internal Coordination
 
+    private func makeIdleTelemetry(for config: AudioBridgeConfiguration?) -> EngineTelemetry {
+        let src = config.flatMap { sourceDevice(for: $0) }
+        let dst = config.flatMap { destinationDevice(for: $0) }
+        return EngineTelemetry(
+            state: .idle,
+            sourceSampleRate: src?.nominalSampleRate ?? 0,
+            destinationSampleRate: dst?.nominalSampleRate ?? 0,
+            bufferFrames: dst?.bufferFrameSize ?? 0,
+            estimatedLatencyMs: 0,
+            driftCompensationActive: false,
+            driftCompensationQuality: UInt32(kAudioAggregateDriftCompensationMaxQuality),
+            xrunCount: 0,
+            isSourceExclusive: false,
+            tappedStreamCount: 0,
+            activeRouteCount: config?.routes.filter(\.isEnabled).count ?? 0,
+            activeOutputChannelCount: dst?.totalOutputChannels ?? 0
+        )
+    }
+
     private func ensureRuntime(for id: UUID) -> BridgeRuntime {
         if let existing = runtimes[id] { return existing }
         let created = BridgeRuntime()
@@ -425,10 +468,10 @@ public final class InterceptorEngine {
         let loaded = store.loadBridges()
         if !loaded.isEmpty {
             bridges = loaded
-            for b in bridges {
-                telemetryByBridgeID[b.id] = EngineTelemetry(activeRouteCount: b.routes.filter(\.isEnabled).count)
-            }
             refreshDevices()
+            for b in bridges {
+                telemetryByBridgeID[b.id] = makeIdleTelemetry(for: b)
+            }
         } else {
             _ = addBridge(name: "Main Monitor")
         }
@@ -469,6 +512,8 @@ public final class InterceptorEngine {
     private func handleActiveDeviceDisconnected(bridgeID: UUID, role: DeviceRole) {
         guard let config = bridge(for: bridgeID), let runtime = runtimes[bridgeID] else { return }
         logger.warning("Active \(role.rawValue) interface disconnected on bridge \(config.name).")
+        runtime.pendingRebuildTask?.cancel()
+        runtime.pendingRebuildTask = nil
         runtime.tapBridge.stop()
         refreshDevices()
 
@@ -491,7 +536,7 @@ public final class InterceptorEngine {
         runtime.pendingRebuildTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled, let self, self.runtimes[bridgeID]?.desiredActive == true else { return }
-            self.logger.info("Sample rate change detected; refreshing passive bridge.")
+            self.logger.info("Audio device format change detected; refreshing passive bridge.")
             self.refreshDevices()
             self.restartBridge(id: bridgeID)
         }
@@ -524,18 +569,34 @@ public final class InterceptorEngine {
     private func handleCoreAudioRestarted() {
         logger.warning("coreaudiod restarted; recovering active bridges.")
         let activeIDs = bridges.map(\.id).filter { runtimes[$0]?.desiredActive == true }
+
+        guard autoReconnectEnabled else {
+            for id in activeIDs {
+                stopBridge(id: id)
+            }
+            return
+        }
+
         for id in activeIDs {
             runtimes[id]?.tapBridge.stop()
             runtimes[id]?.pendingRebuildTask?.cancel()
+            runtimes[id]?.pendingRebuildTask = nil
+            var t = telemetry(for: id)
+            t.state = .starting
+            telemetryByBridgeID[id] = t
         }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard let self else { return }
             self.refreshDevices()
-            if self.autoReconnectEnabled {
+            guard self.autoReconnectEnabled else {
                 for id in activeIDs where self.runtimes[id]?.desiredActive == true {
-                    self.startBridge(id: id)
+                    self.stopBridge(id: id)
                 }
+                return
+            }
+            for id in activeIDs where self.runtimes[id]?.desiredActive == true {
+                self.startBridge(id: id)
             }
         }
     }

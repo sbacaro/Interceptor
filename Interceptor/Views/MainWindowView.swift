@@ -141,7 +141,7 @@ struct MainWindowView: View {
         let telemetry = viewModel.selectedBridgeTelemetry
         switch telemetry.state {
         case .running:
-            let khz = String(format: "%.1f kHz", telemetry.destinationSampleRate / 1000.0)
+            let khz = AudioDeviceDescriptor.formatSampleRate(telemetry.destinationSampleRate)
             let ms = String(format: "%.1f ms", telemetry.estimatedLatencyMs)
             return "Intercepting · \(khz) · \(ms)"
         case .starting:

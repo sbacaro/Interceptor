@@ -104,8 +104,9 @@ public final class AtomicMeterBank: @unchecked Sendable {
     public func recordInput(channel: Int, peak: Float, rms: Float) {
         guard channel >= 0, channel < Self.maxChannels else { return }
         atomicStoreMax(inputPeaks.advanced(by: channel), candidate: peak)
-        inputRMS.advanced(by: channel).pointee.store(rms.bitPattern, ordering: .relaxed)
-        if peak >= 1.0 {
+        let safeRMS: Float = (rms.isFinite && rms > 0) ? rms : 0.0
+        inputRMS.advanced(by: channel).pointee.store(safeRMS.bitPattern, ordering: .relaxed)
+        if peak.isFinite && peak >= 1.0 {
             inputClips.advanced(by: channel).pointee.store(1, ordering: .relaxed)
         }
     }
@@ -115,8 +116,9 @@ public final class AtomicMeterBank: @unchecked Sendable {
     public func recordOutput(channel: Int, peak: Float, rms: Float) {
         guard channel >= 0, channel < Self.maxChannels else { return }
         atomicStoreMax(outputPeaks.advanced(by: channel), candidate: peak)
-        outputRMS.advanced(by: channel).pointee.store(rms.bitPattern, ordering: .relaxed)
-        if peak >= 1.0 {
+        let safeRMS: Float = (rms.isFinite && rms > 0) ? rms : 0.0
+        outputRMS.advanced(by: channel).pointee.store(safeRMS.bitPattern, ordering: .relaxed)
+        if peak.isFinite && peak >= 1.0 {
             outputClips.advanced(by: channel).pointee.store(1, ordering: .relaxed)
         }
     }
@@ -127,11 +129,16 @@ public final class AtomicMeterBank: @unchecked Sendable {
         xruns.wrappingAdd(1, ordering: .relaxed)
     }
 
+    /// Current cumulative dropout / XRun count (non-destructive read).
+    public var xrunCount: UInt64 {
+        xruns.load(ordering: .relaxed)
+    }
+
     /// UI thread: consumes accumulated peak and latest RMS for a single 0-based input channel (zero allocations).
     public func consumeInputLevel(channel: Int) -> ChannelMeterLevel {
         guard channel >= 0, channel < Self.maxChannels else { return .silent }
         let peakBits = inputPeaks.advanced(by: channel).pointee.exchange(0, ordering: .relaxed)
-        let rmsBits = inputRMS.advanced(by: channel).pointee.load(ordering: .relaxed)
+        let rmsBits = inputRMS.advanced(by: channel).pointee.exchange(0, ordering: .relaxed)
         let clipped = inputClips.advanced(by: channel).pointee.load(ordering: .relaxed) != 0
         if peakBits == 0 && rmsBits == 0 && !clipped {
             return .silent
@@ -152,7 +159,7 @@ public final class AtomicMeterBank: @unchecked Sendable {
         inLevels.reserveCapacity(inCount)
         for i in 0..<inCount {
             let peakBits = inputPeaks.advanced(by: i).pointee.exchange(0, ordering: .relaxed)
-            let rmsBits = inputRMS.advanced(by: i).pointee.load(ordering: .relaxed)
+            let rmsBits = inputRMS.advanced(by: i).pointee.exchange(0, ordering: .relaxed)
             let clipped = inputClips.advanced(by: i).pointee.load(ordering: .relaxed) != 0
             inLevels.append(
                 ChannelMeterLevel(
@@ -167,7 +174,7 @@ public final class AtomicMeterBank: @unchecked Sendable {
         outLevels.reserveCapacity(outCount)
         for i in 0..<outCount {
             let peakBits = outputPeaks.advanced(by: i).pointee.exchange(0, ordering: .relaxed)
-            let rmsBits = outputRMS.advanced(by: i).pointee.load(ordering: .relaxed)
+            let rmsBits = outputRMS.advanced(by: i).pointee.exchange(0, ordering: .relaxed)
             let clipped = outputClips.advanced(by: i).pointee.load(ordering: .relaxed) != 0
             outLevels.append(
                 ChannelMeterLevel(

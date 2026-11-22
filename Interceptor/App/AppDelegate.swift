@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var mainWindow: NSWindow?
     private var mainWindowObservers: [NSObjectProtocol] = []
     private var mainMenuObserver: NSObjectProtocol?
+    private var pendingAccessoryTransition = false
 
     private static let prunedMenuTitles: Set<String> = ["Edit", "Format", "View"]
 
@@ -59,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Registers the primary SwiftUI window so we observe ONLY its lifecycle events
     /// (close, miniaturize, occlusion) and completely suspend UI meter polling when hidden.
     func registerMainWindow(_ window: NSWindow) {
+        pendingAccessoryTransition = false
         if mainWindow !== window {
             removeMainWindowObservers()
             mainWindow = window
@@ -97,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Restores Dock presence, opens or focuses the main window, and optionally presents the Settings sheet.
     func showMainWindow(openSettings: Bool = false) {
+        pendingAccessoryTransition = false
         if NSApp.activationPolicy() != .regular {
             NSApp.setActivationPolicy(.regular)
         }
@@ -112,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         pruneUnusedTopLevelMenus()
         viewModel?.setMainWindowVisible(true)
 
@@ -127,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = self.mainWindow {
                 window.makeKeyAndOrderFront(nil)
             }
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             self.syncMainWindowVisibility()
             if openSettings {
                 self.viewModel?.isSettingsPresented = true
@@ -150,11 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel?.setMainWindowVisible(false)
         viewModel?.isSettingsPresented = false
         viewModel?.isBridgeInfoPresented = false
+        pendingAccessoryTransition = true
 
         // Switch to accessory policy on the next runloop tick so the window finishes closing cleanly
         // and disappears from the Dock (unless pinned there by the user).
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.pendingAccessoryTransition else { return }
+            self.pendingAccessoryTransition = false
             let mainVisible = self.mainWindow?.isVisible == true
             if !mainVisible && NSApp.activationPolicy() != .accessory {
                 NSApp.setActivationPolicy(.accessory)
@@ -185,9 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func pruneUnusedTopLevelMenus() {
         guard let mainMenu = NSApp.mainMenu else { return }
-        for item in mainMenu.items.reversed() {
-            if Self.prunedMenuTitles.contains(item.title) {
-                mainMenu.removeItem(item)
+        for index in mainMenu.items.indices.reversed() where index > 0 {
+            let item = mainMenu.items[index]
+            let isEmptySubmenu = item.submenu?.items.isEmpty == true
+            if Self.prunedMenuTitles.contains(item.title) || isEmptySubmenu {
+                mainMenu.removeItem(at: index)
             }
         }
     }

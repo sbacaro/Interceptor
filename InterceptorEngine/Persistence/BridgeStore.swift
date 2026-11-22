@@ -34,7 +34,24 @@ public final class BridgeStore: @unchecked Sendable {
             return try decoder.decode([AudioBridgeConfiguration].self, from: data)
         } catch {
             logger.error("Failed to load bridges from \(self.fileURL.path): \(error.localizedDescription)")
+            backupCorruptStore()
             return []
+        }
+    }
+
+    private func backupCorruptStore() {
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let backupURL = fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("bridges.corrupt-\(timestamp).json", isDirectory: false)
+        do {
+            if FileManager.default.fileExists(atPath: backupURL.path) {
+                try FileManager.default.removeItem(at: backupURL)
+            }
+            try FileManager.default.copyItem(at: fileURL, to: backupURL)
+            logger.warning("Backed up unreadable bridge configuration to \(backupURL.path)")
+        } catch {
+            logger.error("Failed to back up corrupt bridge configuration: \(error.localizedDescription)")
         }
     }
 

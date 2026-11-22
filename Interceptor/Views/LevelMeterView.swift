@@ -7,11 +7,16 @@ import SwiftUI
 /// with zero SwiftUI view diffing, zero Core Graphics software rasterization, and <0.1% CPU.
 struct LiveChannelVUMeterView: View {
     let meterModel: RouteMeterModel
+    var onResetClips: (() -> Void)? = nil
 
     var body: some View {
         CoreAnimationVUMeterRepresentable(meterModel: meterModel)
             .frame(minWidth: 146, maxWidth: 216)
             .frame(height: 16)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onResetClips?()
+            }
             .accessibilityLabel(Text("Channel level"))
     }
 }
@@ -28,8 +33,17 @@ struct ChannelVUMeterView: View {
 private struct CoreAnimationVUMeterRepresentable: NSViewRepresentable {
     let meterModel: RouteMeterModel
 
+    final class Coordinator {
+        weak var attachedModel: RouteMeterModel?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> CoreAnimationVUMeterNSView {
         let view = CoreAnimationVUMeterNSView()
+        context.coordinator.attachedModel = meterModel
         meterModel.attachRenderer { [weak view] level in
             view?.apply(level: level)
         }
@@ -38,12 +52,20 @@ private struct CoreAnimationVUMeterRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: CoreAnimationVUMeterNSView, context: Context) {
-        meterModel.attachRenderer { [weak nsView] level in
-            nsView?.apply(level: level)
+        if context.coordinator.attachedModel !== meterModel {
+            context.coordinator.attachedModel?.detachRenderer()
+            context.coordinator.attachedModel = meterModel
+            meterModel.attachRenderer { [weak nsView] level in
+                nsView?.apply(level: level)
+            }
+            nsView.apply(level: meterModel.level)
         }
     }
 
-    static func dismantleNSView(_ nsView: CoreAnimationVUMeterNSView, coordinator: ()) {}
+    static func dismantleNSView(_ nsView: CoreAnimationVUMeterNSView, coordinator: Coordinator) {
+        coordinator.attachedModel?.detachRenderer()
+        coordinator.attachedModel = nil
+    }
 }
 
 /// Pure AppKit/Core Animation GPU meter view:
@@ -66,6 +88,7 @@ final class CoreAnimationVUMeterNSView: NSView {
 
     private var currentLevel = SmoothedChannelMeter()
     private var lastDisplayedDBText = "-∞"
+    private var lastDisplayedClipped = false
 
     override init(frame frameRect: NSRect) {
         self.readoutField = NSTextField(labelWithString: "-∞")
@@ -188,11 +211,26 @@ final class CoreAnimationVUMeterNSView: NSView {
         if level.peakDB <= Self.minDB + 0.5 {
             text = "-∞"
         } else {
-            text = String(format: "%.0f", level.peakDB)
+            let rounded = Int(level.peakDB.rounded())
+            text = rounded >= 0 ? "0" : "\(rounded)"
         }
         if text != lastDisplayedDBText {
             lastDisplayedDBText = text
             readoutField.stringValue = text
+        }
+        if level.isClipped != lastDisplayedClipped {
+            lastDisplayedClipped = level.isClipped
+            updateReadoutColor()
+        }
+    }
+
+    private func updateReadoutColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if lastDisplayedClipped {
+                readoutField.textColor = NSColor(named: "MeterPeak") ?? .systemRed
+            } else {
+                readoutField.textColor = NSColor.secondaryLabelColor
+            }
         }
     }
 
@@ -213,6 +251,7 @@ final class CoreAnimationVUMeterNSView: NSView {
             }
             CATransaction.commit()
         }
+        updateReadoutColor()
     }
 
     private static func normalized(db: Float) -> CGFloat {

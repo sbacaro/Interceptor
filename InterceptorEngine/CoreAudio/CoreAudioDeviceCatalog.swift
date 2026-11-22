@@ -313,6 +313,8 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
             try system.addListener(forProperties: addresses, dispatchQueue: listenerQueue)
             isObserving = true
         } catch {
+            system.delegates.removeAll { ($0 as AnyObject) === proxy }
+            self.listenerProxy = nil
             logger.error("Failed to attach Core Audio system listeners: \(error.localizedDescription)")
         }
     }

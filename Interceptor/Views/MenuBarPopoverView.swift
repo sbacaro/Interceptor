@@ -18,7 +18,7 @@ struct MenuBarPopoverView: View {
                         .font(.headline)
                     HStack(spacing: 5) {
                         Circle()
-                            .fill(viewModel.engine.anyBridgeRunning ? Color.green : Color.secondary)
+                            .fill(headerIndicatorColor)
                             .frame(width: 6, height: 6)
                         Text(headerSubtitle)
                             .font(.caption)
@@ -46,43 +46,14 @@ struct MenuBarPopoverView: View {
             Divider()
 
             // Virtual Devices List
-            VStack(spacing: 2) {
-                ForEach(viewModel.engine.bridges) { bridge in
-                    let telemetry = viewModel.engine.telemetry(for: bridge.id)
-                    let isActive = telemetry.state.isActiveOrPending
-                    let canStart = viewModel.engine.canStartBridge(bridge.id)
-
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(bridge.name)
-                                    .font(.callout.weight(.medium))
-                                    .lineLimit(1)
-                                if telemetry.state.isRunning {
-                                    Text(String(format: "%.1f ms", telemetry.estimatedLatencyMs))
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Text(bridge.routingSummary)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        if viewModel.engine.bridges.count > 1 {
-                            InterceptionActionButton(
-                                isActive: isActive,
-                                isDisabled: !canStart && !isActive
-                            ) {
-                                viewModel.toggleBridge(id: bridge.id)
-                            }
-                        }
+            Group {
+                if viewModel.engine.bridges.count > 4 {
+                    ScrollView {
+                        bridgeRows
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .frame(height: 240)
+                } else {
+                    bridgeRows
                 }
             }
             .padding(.vertical, 4)
@@ -129,20 +100,136 @@ struct MenuBarPopoverView: View {
         }
         .frame(width: 300)
         .onAppear {
+            appDelegate.viewModel = viewModel
             appDelegate.openMainWindowAction = { openWindow(id: "main") }
         }
     }
 
+    @ViewBuilder
+    private var bridgeRows: some View {
+        VStack(spacing: 2) {
+            ForEach(viewModel.engine.bridges) { bridge in
+                let telemetry = viewModel.engine.telemetry(for: bridge.id)
+                let isActive = telemetry.state.isActiveOrPending
+                let canStart = viewModel.engine.canStartBridge(bridge.id)
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            if let dotColor = stateDotColor(for: telemetry.state) {
+                                Circle()
+                                    .fill(dotColor)
+                                    .frame(width: 6, height: 6)
+                            }
+                            Text(bridge.name)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            if let badge = rowStatusText(for: telemetry) {
+                                Text(badge)
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(rowStatusColor(for: telemetry.state))
+                                    .lineLimit(1)
+                            }
+                        }
+                        Text(bridge.routingSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 6)
+
+                    if viewModel.engine.bridges.count > 1 {
+                        InterceptionActionButton(
+                            isActive: isActive,
+                            isDisabled: !canStart && !isActive
+                        ) {
+                            viewModel.toggleBridge(id: bridge.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private var headerIndicatorColor: Color {
+        let states = viewModel.engine.telemetryByBridgeID.values.map(\.state)
+        let hasError = states.contains { if case .error = $0 { return true }; return false }
+        let hasWarning = states.contains {
+            switch $0 {
+            case .permissionRequired, .waitingForDevice, .starting: true
+            default: false
+            }
+        }
+        if viewModel.engine.anyBridgeRunning {
+            return (hasError || hasWarning) ? .orange : .green
+        }
+        if hasError { return .red }
+        if hasWarning { return .orange }
+        return .secondary
+    }
+
     private var headerSubtitle: String {
         let count = viewModel.engine.runningBridgeCount
-        if count == 0 {
-            return "Standby"
-        }
         if count == 1, let running = viewModel.engine.bridges.first(where: { viewModel.engine.isBridgeRunning($0.id) }) {
             let t = viewModel.engine.telemetry(for: running.id)
-            return String(format: "%.1f kHz · %.1f ms", t.destinationSampleRate / 1000.0, t.estimatedLatencyMs)
+            let rate = AudioDeviceDescriptor.formatSampleRate(t.destinationSampleRate)
+            return String(format: "%@ · %.1f ms", rate, t.estimatedLatencyMs)
         }
-        return "\(count) Active"
+        if count > 1 {
+            return "\(count) Active"
+        }
+
+        let states = viewModel.engine.telemetryByBridgeID.values.map(\.state)
+        if states.contains(.permissionRequired) {
+            return "Permission Required"
+        }
+        if states.contains(where: { if case .error = $0 { return true }; return false }) {
+            return "Audio Error"
+        }
+        if states.contains(where: { if case .waitingForDevice = $0 { return true }; return false }) {
+            return "Waiting for Device"
+        }
+        if states.contains(.starting) {
+            return "Starting…"
+        }
+        return "Standby"
+    }
+
+    private func stateDotColor(for state: EngineState) -> Color? {
+        switch state {
+        case .running: .green
+        case .starting, .waitingForDevice, .permissionRequired: .orange
+        case .error: .red
+        case .idle: nil
+        }
+    }
+
+    private func rowStatusText(for telemetry: EngineTelemetry) -> String? {
+        switch telemetry.state {
+        case .running:
+            String(format: "%.1f ms", telemetry.estimatedLatencyMs)
+        case .starting:
+            "Starting…"
+        case .waitingForDevice:
+            "Waiting"
+        case .permissionRequired:
+            "Permission"
+        case .error:
+            "Error"
+        case .idle:
+            nil
+        }
+    }
+
+    private func rowStatusColor(for state: EngineState) -> Color {
+        switch state {
+        case .error: .red
+        case .waitingForDevice, .permissionRequired: .orange
+        default: .secondary
+        }
     }
 }
 

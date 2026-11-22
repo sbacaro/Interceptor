@@ -48,4 +48,23 @@ struct BridgeStoreTests {
         #expect(loaded[1].name == "Headphones")
         #expect(loaded[1].routes[1].isEnabled == false)
     }
+
+    @Test("Backs up corrupt JSON instead of silently discarding user bridge configuration")
+    func backsUpCorruptStoreFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let storeURL = tempDir.appendingPathComponent("bridges.json")
+        let corruptPayload = Data("{not valid json".utf8)
+        try corruptPayload.write(to: storeURL)
+
+        let store = BridgeStore(fileURL: storeURL)
+        let loaded = store.loadBridges()
+        #expect(loaded.isEmpty)
+
+        let contents = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        let backups = contents.filter { $0.hasPrefix("bridges.corrupt-") && $0.hasSuffix(".json") }
+        #expect(backups.count == 1)
+    }
 }

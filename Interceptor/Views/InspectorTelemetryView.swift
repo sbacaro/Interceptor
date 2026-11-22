@@ -27,10 +27,23 @@ struct InspectorTelemetryView: View {
             Divider()
 
             VStack(spacing: 7) {
-                infoRow("Source Rate", value: formatRate(telemetry.sourceSampleRate > 0 ? telemetry.sourceSampleRate : (srcDevice?.nominalSampleRate ?? 0)))
-                infoRow("Monitor Rate", value: formatRate(telemetry.destinationSampleRate > 0 ? telemetry.destinationSampleRate : (dstDevice?.nominalSampleRate ?? 0)))
-                infoRow("Drift Compensation", value: telemetry.driftCompensationActive ? "Max (\(telemetry.driftCompensationQuality))" : "Standby")
-                infoRow("Buffer Size", value: telemetry.bufferFrames > 0 ? "\(telemetry.bufferFrames) frames" : "—")
+                let effectiveBufferFrames = telemetry.bufferFrames > 0
+                    ? telemetry.bufferFrames
+                    : (dstDevice?.bufferFrameSize ?? 0)
+                infoRow(
+                    "Source Rate",
+                    value: AudioDeviceDescriptor.formatSampleRate(
+                        telemetry.sourceSampleRate > 0 ? telemetry.sourceSampleRate : (srcDevice?.nominalSampleRate ?? 0)
+                    )
+                )
+                infoRow(
+                    "Monitor Rate",
+                    value: AudioDeviceDescriptor.formatSampleRate(
+                        telemetry.destinationSampleRate > 0 ? telemetry.destinationSampleRate : (dstDevice?.nominalSampleRate ?? 0)
+                    )
+                )
+                infoRow("Drift Compensation", value: telemetry.driftCompensationActive ? "Active (PI Hermite)" : "Standby")
+                infoRow("Buffer Size", value: effectiveBufferFrames > 0 ? "\(effectiveBufferFrames) frames" : "—")
                 infoRow("Monitor Latency", value: telemetry.estimatedLatencyMs > 0 ? String(format: "%.2f ms", telemetry.estimatedLatencyMs) : "—")
                 infoRow("XRuns", value: "\(telemetry.xrunCount)", tint: telemetry.xrunCount > 0 ? .orange : nil)
             }
@@ -40,7 +53,7 @@ struct InspectorTelemetryView: View {
             VStack(spacing: 7) {
                 infoRow("Tap Mode", value: "Unmuted · Non-Exclusive")
                 infoRow("Process Scope", value: bridge.processTarget.shortDescription)
-                infoRow("Signal Path", value: "Unity (Bit-Transparent)")
+                infoRow("Signal Path", value: telemetry.isSampleRateConverted ? "Unity (SRC)" : "Unity (Bit-Transparent)")
             }
 
             Divider()
@@ -86,11 +99,6 @@ struct InspectorTelemetryView: View {
         case .error: .red
         case .idle: .secondary
         }
-    }
-
-    private func formatRate(_ hz: Double) -> String {
-        guard hz > 0 else { return "—" }
-        return String(format: "%.1f kHz", hz / 1000.0)
     }
 }
 

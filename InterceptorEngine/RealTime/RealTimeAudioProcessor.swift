@@ -73,8 +73,8 @@ public struct RTRoutingSnapshot: Sendable {
 /// by Core Audio's `AudioDeviceIOProc`s.
 ///
 /// Supports both single-device loopback (`process`) and decoupled pro-audio tap-to-monitor
-/// operation (`processTapInput` + `processMonitorOutput`) through `ringBuffer`, resampling
-/// ONLY the active routed mono channels instead of 64+ unused hardware tap channels.
+/// operation (`processTapInput` + `processMonitorOutput`) through `ringBuffer`, capturing and
+/// resampling each unique active source channel in its own dedicated ring slot.
 public final class RealTimeAudioProcessor: @unchecked Sendable {
     public let routingBuffer: LockFreeTripleBuffer<RTRoutingSnapshot>
     public let inputRoutingBuffer: LockFreeTripleBuffer<RTRoutingSnapshot>
@@ -84,6 +84,10 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
     /// Configured before `AudioDeviceStart`; read-only while IOProcs are running.
     public private(set) var inputLayout: RTBufferLayoutMap
     public private(set) var outputLayout: RTBufferLayoutMap
+
+    /// Producer-only bitmasks tracking which source channel slots (`0..<128`) are currently active.
+    private var activeSourceMaskLo: UInt64 = 0
+    private var activeSourceMaskHi: UInt64 = 0
 
     public init(
         initialSnapshot: RTRoutingSnapshot = RTRoutingSnapshot(),
@@ -105,6 +109,16 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
     ) {
         self.inputLayout = inputLayout
         self.outputLayout = outputLayout
+        self.activeSourceMaskLo = 0
+        self.activeSourceMaskHi = 0
+    }
+
+    /// Resets producer bitmasks, ring buffer cursors/slots, and meter bank (call only when stopped).
+    public func resetRuntimeState() {
+        activeSourceMaskLo = 0
+        activeSourceMaskHi = 0
+        ringBuffer.reset()
+        meterBank.resetAll()
     }
 
     /// Publishes updated mono channel patches to both real-time threads without stopping audio.
@@ -114,7 +128,8 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
     }
 
     /// Producer audio thread (Tap-Only Private Aggregate, zero ASRC):
-    /// extracts ONLY active routed mono channels into `ringBuffer` and tracks lightweight visual peak gain.
+    /// extracts each unique active source channel into its dedicated `ringBuffer` slot
+    /// and tracks lightweight visual peak gain.
     @inline(__always)
     public func processTapInput(
         inInputData: UnsafePointer<AudioBufferList>?,
@@ -125,71 +140,135 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         let inBufCount = inBuffers.count
 
         let snapshotPtr = inputRoutingBuffer.readLatestPointer()
-        let patchCount = min(snapshotPtr.pointee.patchCount, LockFreeAudioRingBuffer.maxChannels)
-        guard patchCount > 0 else { return }
+        let patchCount = snapshotPtr.pointee.patchCount
 
-        let baseWriteFrame = ringBuffer.beginWrite(frameCount: frameCount)
-
+        var newMaskLo: UInt64 = 0
+        var newMaskHi: UInt64 = 0
         for p in 0..<patchCount {
             let patch = snapshotPtr.pointee.patches[p]
-            guard patch.isActive else {
-                for f in 0..<frameCount {
-                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
-                }
-                continue
-            }
-
+            guard patch.isActive else { continue }
             let srcChannel = Int(patch.sourceChannel)
-            let srcAddr = inputLayout[srcChannel]
-            guard srcAddr.isValid else {
-                for f in 0..<frameCount {
-                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
-                }
-                continue
+            guard srcChannel >= 0, srcChannel < LockFreeAudioRingBuffer.maxChannels else { continue }
+            if srcChannel < 64 {
+                newMaskLo |= (UInt64(1) &<< srcChannel)
+            } else {
+                newMaskHi |= (UInt64(1) &<< (srcChannel - 64))
             }
+        }
 
-            let srcBufIdx = Int(srcAddr.bufferIndex)
-            let srcStride = Int(srcAddr.stride)
-            let srcOffset = Int(srcAddr.channelOffset)
-            guard srcBufIdx < inBufCount,
-                  Int(inBuffers[srcBufIdx].mNumberChannels) == srcStride,
-                  let srcRaw = inBuffers[srcBufIdx].mData else {
-                for f in 0..<frameCount {
-                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
-                }
-                continue
+        // Always advance the ring buffer timeline even if all routes are currently bypassed
+        // so the consumer stays clock-locked with zero XRuns when routes are re-enabled.
+        let baseWriteFrame = ringBuffer.beginWrite(frameCount: frameCount)
+
+        deactivateRemovedSlots(deactivatedMask: activeSourceMaskLo & ~newMaskLo, channelOffset: 0)
+        deactivateRemovedSlots(deactivatedMask: activeSourceMaskHi & ~newMaskHi, channelOffset: 64)
+
+        var loIter = newMaskLo
+        while loIter != 0 {
+            let bit = loIter.trailingZeroBitCount
+            loIter &= loIter &- 1
+            let wasActive = (activeSourceMaskLo & (UInt64(1) &<< bit)) != 0
+            if !extractAndStoreSourceChannel(
+                bit,
+                wasActive: wasActive,
+                inBuffers: inBuffers,
+                inBufCount: inBufCount,
+                frameCount: frameCount,
+                baseWriteFrame: baseWriteFrame
+            ) {
+                newMaskLo &= ~(UInt64(1) &<< bit)
             }
+        }
 
-            let srcMax = Int(inBuffers[srcBufIdx].mDataByteSize) / MemoryLayout<Float>.size
-            guard srcOffset + (frameCount - 1) * srcStride < srcMax else {
-                for f in 0..<frameCount {
-                    ringBuffer.storeSample(0.0, slot: p, frame: baseWriteFrame &+ UInt64(f))
-                }
-                continue
+        var hiIter = newMaskHi
+        while hiIter != 0 {
+            let bit = hiIter.trailingZeroBitCount
+            hiIter &= hiIter &- 1
+            let ch = 64 + bit
+            let wasActive = (activeSourceMaskHi & (UInt64(1) &<< bit)) != 0
+            if !extractAndStoreSourceChannel(
+                ch,
+                wasActive: wasActive,
+                inBuffers: inBuffers,
+                inBufCount: inBufCount,
+                frameCount: frameCount,
+                baseWriteFrame: baseWriteFrame
+            ) {
+                newMaskHi &= ~(UInt64(1) &<< bit)
             }
-
-            let srcPtr = srcRaw.assumingMemoryBound(to: Float.self)
-            var sIdx = srcOffset
-            var peak: Float = 0.0
-
-            for f in 0..<frameCount {
-                let sample = srcPtr[sIdx]
-                ringBuffer.storeSample(sample, slot: p, frame: baseWriteFrame &+ UInt64(f))
-                let mag = fabsf(sample)
-                if mag > peak { peak = mag }
-                sIdx += srcStride
-            }
-
-            // Visual gain peak only (zero sqrtf RMS overhead on the real-time audio thread).
-            meterBank.recordInput(channel: srcChannel, peak: peak, rms: peak * 0.70710678)
         }
 
         ringBuffer.commitWrite(newWriteIndex: baseWriteFrame &+ UInt64(frameCount))
+        activeSourceMaskLo = newMaskLo
+        activeSourceMaskHi = newMaskHi
+    }
+
+    @inline(__always)
+    private func deactivateRemovedSlots(deactivatedMask: UInt64, channelOffset: Int) {
+        var iter = deactivatedMask
+        while iter != 0 {
+            let bit = iter.trailingZeroBitCount
+            ringBuffer.markSlotInactive(channelOffset + bit)
+            iter &= iter &- 1
+        }
+    }
+
+    @inline(__always)
+    private func extractAndStoreSourceChannel(
+        _ srcChannel: Int,
+        wasActive: Bool,
+        inBuffers: UnsafeMutableAudioBufferListPointer,
+        inBufCount: Int,
+        frameCount: Int,
+        baseWriteFrame: UInt64
+    ) -> Bool {
+        let srcAddr = inputLayout[srcChannel]
+        guard srcAddr.isValid else {
+            ringBuffer.markSlotInactive(srcChannel)
+            return false
+        }
+
+        let srcBufIdx = Int(srcAddr.bufferIndex)
+        let srcStride = Int(srcAddr.stride)
+        let srcOffset = Int(srcAddr.channelOffset)
+        guard srcBufIdx < inBufCount,
+              Int(inBuffers[srcBufIdx].mNumberChannels) == srcStride,
+              let srcRaw = inBuffers[srcBufIdx].mData else {
+            ringBuffer.markSlotInactive(srcChannel)
+            return false
+        }
+
+        let srcMax = Int(inBuffers[srcBufIdx].mDataByteSize) / MemoryLayout<Float>.size
+        guard srcOffset + (frameCount - 1) * srcStride < srcMax else {
+            ringBuffer.markSlotInactive(srcChannel)
+            return false
+        }
+
+        let srcPtr = srcRaw.assumingMemoryBound(to: Float.self)
+        var sIdx = srcOffset
+        var peak: Float = 0.0
+
+        for f in 0..<frameCount {
+            let raw = srcPtr[sIdx]
+            let sample: Float = raw.isFinite ? raw : 0.0
+            ringBuffer.storeSample(sample, slot: srcChannel, frame: baseWriteFrame &+ UInt64(f))
+            let mag = fabsf(sample)
+            if mag > peak { peak = mag }
+            sIdx += srcStride
+        }
+
+        if !wasActive {
+            ringBuffer.markSlotActive(srcChannel, validFrom: baseWriteFrame)
+        }
+
+        // Visual gain peak only (zero sqrtf RMS overhead on the real-time audio thread).
+        meterBank.recordInput(channel: srcChannel, peak: peak, rms: peak * 0.70710678)
+        return true
     }
 
     /// Consumer audio thread (Direct Monitor Output Device):
-    /// reads ONLY active routed channels from `ringBuffer` with PI drift compensation + cubic Hermite
-    /// resampling and sums each slot into its patched monitor output channel.
+    /// reads active source channel slots from `ringBuffer` with PI drift compensation +
+    /// cubic Hermite resampling and sums each patched slot directly into its monitor output channel.
     @inline(__always)
     public func processMonitorOutput(
         outOutputData: UnsafeMutablePointer<AudioBufferList>?,
@@ -207,35 +286,53 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
             }
         }
 
-        let snapshotPtr = routingBuffer.readLatestPointer()
-        let patchCount = min(snapshotPtr.pointee.patchCount, LockFreeAudioRingBuffer.maxChannels)
-        guard patchCount > 0 else { return }
-
-        _ = ringBuffer.readResampled(
-            activeSlots: patchCount,
-            outputFrameCount: frameCount,
-            onXRun: { [meterBank] in
+        switch ringBuffer.beginRead(outputFrameCount: frameCount) {
+        case let .notReady(xrun):
+            if xrun {
                 meterBank.recordXRun()
             }
-        ) { slot, frame, sample in
-            let patch = snapshotPtr.pointee.patches[slot]
-            guard patch.isActive else { return }
-            let dstChannel = Int(patch.destinationChannel)
-            let dstAddr = outputLayout[dstChannel]
-            guard dstAddr.isValid else { return }
+            return
 
-            let dstBufIdx = Int(dstAddr.bufferIndex)
-            let dstStride = Int(dstAddr.stride)
-            let dstOffset = Int(dstAddr.channelOffset)
-            guard dstBufIdx < outBufCount,
-                  Int(outBuffers[dstBufIdx].mNumberChannels) == dstStride,
-                  let dstRaw = outBuffers[dstBufIdx].mData else { return }
+        case let .ready(plan, xrun):
+            if xrun {
+                meterBank.recordXRun()
+            }
 
-            let dstMax = Int(outBuffers[dstBufIdx].mDataByteSize) / MemoryLayout<Float>.size
-            let dIdx = dstOffset + frame * dstStride
-            guard dIdx < dstMax else { return }
+            let snapshotPtr = routingBuffer.readLatestPointer()
+            let patchCount = snapshotPtr.pointee.patchCount
 
-            dstRaw.assumingMemoryBound(to: Float.self)[dIdx] += sample
+            for p in 0..<patchCount {
+                let patch = snapshotPtr.pointee.patches[p]
+                guard patch.isActive else { continue }
+                let srcChannel = Int(patch.sourceChannel)
+                let dstChannel = Int(patch.destinationChannel)
+                guard srcChannel >= 0, srcChannel < LockFreeAudioRingBuffer.maxChannels else { continue }
+
+                let dstAddr = outputLayout[dstChannel]
+                guard dstAddr.isValid else { continue }
+
+                let dstBufIdx = Int(dstAddr.bufferIndex)
+                let dstStride = Int(dstAddr.stride)
+                let dstOffset = Int(dstAddr.channelOffset)
+                guard dstBufIdx < outBufCount,
+                      Int(outBuffers[dstBufIdx].mNumberChannels) == dstStride,
+                      let dstRaw = outBuffers[dstBufIdx].mData else {
+                    continue
+                }
+
+                let dstMax = Int(outBuffers[dstBufIdx].mDataByteSize) / MemoryLayout<Float>.size
+                guard dstOffset + (frameCount - 1) * dstStride < dstMax else { continue }
+
+                ringBuffer.renderSlot(
+                    srcChannel,
+                    plan: plan,
+                    into: dstRaw.assumingMemoryBound(to: Float.self),
+                    dstOffset: dstOffset,
+                    dstStride: dstStride
+                )
+            }
+
+            ringBuffer.commitRead(plan: plan)
         }
     }
 
@@ -305,7 +402,8 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
             var peak: Float = 0.0
             var sumSq: Float = 0.0
             for _ in 0..<frameCount {
-                let sample = srcPtr[sIdx]
+                let raw = srcPtr[sIdx]
+                let sample: Float = raw.isFinite ? raw : 0.0
                 dstPtr[dIdx] += sample
                 let mag = fabsf(sample)
                 if mag > peak { peak = mag }
@@ -318,6 +416,17 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
             meterBank.recordInput(channel: srcChannel, peak: peak, rms: rms)
         }
     }
+}
+
+@inline(__always)
+private func computeFrameCount(from buffers: UnsafeMutableAudioBufferListPointer) -> Int {
+    for b in 0..<buffers.count {
+        let ch = Int(buffers[b].mNumberChannels)
+        if ch > 0 && buffers[b].mDataByteSize > 0 && buffers[b].mData != nil {
+            return Int(buffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
+        }
+    }
+    return 0
 }
 
 /// C-compatible Core Audio IOProc trampoline (no Swift closure capture, zero ARC overhead).
@@ -334,14 +443,7 @@ public func interceptorAudioDeviceIOProc(
     let processor = Unmanaged<RealTimeAudioProcessor>.fromOpaque(clientData).takeUnretainedValue()
 
     let outBuffers = UnsafeMutableAudioBufferListPointer(outOutputData)
-    var frameCount = 0
-    for b in 0..<outBuffers.count {
-        let ch = Int(outBuffers[b].mNumberChannels)
-        if ch > 0 && outBuffers[b].mDataByteSize > 0 {
-            frameCount = Int(outBuffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
-            break
-        }
-    }
+    let frameCount = computeFrameCount(from: outBuffers)
 
     if frameCount > 0 {
         processor.process(inInputData: inInputData, outOutputData: outOutputData, frameCount: frameCount)
@@ -363,14 +465,7 @@ public func interceptorTapInputIOProc(
     let processor = Unmanaged<RealTimeAudioProcessor>.fromOpaque(clientData).takeUnretainedValue()
 
     let inBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inInputData))
-    var frameCount = 0
-    for b in 0..<inBuffers.count {
-        let ch = Int(inBuffers[b].mNumberChannels)
-        if ch > 0 && inBuffers[b].mDataByteSize > 0 {
-            frameCount = Int(inBuffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
-            break
-        }
-    }
+    let frameCount = computeFrameCount(from: inBuffers)
 
     if frameCount > 0 {
         processor.processTapInput(inInputData: inInputData, frameCount: frameCount)
@@ -392,14 +487,7 @@ public func interceptorMonitorOutputIOProc(
     let processor = Unmanaged<RealTimeAudioProcessor>.fromOpaque(clientData).takeUnretainedValue()
 
     let outBuffers = UnsafeMutableAudioBufferListPointer(outOutputData)
-    var frameCount = 0
-    for b in 0..<outBuffers.count {
-        let ch = Int(outBuffers[b].mNumberChannels)
-        if ch > 0 && outBuffers[b].mDataByteSize > 0 {
-            frameCount = Int(outBuffers[b].mDataByteSize) / (MemoryLayout<Float>.size * ch)
-            break
-        }
-    }
+    let frameCount = computeFrameCount(from: outBuffers)
 
     if frameCount > 0 {
         processor.processMonitorOutput(outOutputData: outOutputData, frameCount: frameCount)

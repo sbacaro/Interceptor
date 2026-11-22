@@ -17,7 +17,7 @@ struct RoutePatchListView: View {
                 Spacer()
 
                 Button {
-                    viewModel.addChannelToSelectedBridge()
+                    viewModel.addChannel(toBridgeID: bridge.id)
                 } label: {
                     Label("Add Channel", systemImage: "plus")
                         .font(.caption.weight(.medium))
@@ -38,13 +38,13 @@ struct RoutePatchListView: View {
                     Text("Add a channel to patch a source output directly to a monitor output.")
                 } actions: {
                     Button("Add Channel") {
-                        viewModel.addChannelToSelectedBridge()
+                        viewModel.addChannel(toBridgeID: bridge.id)
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                let maxSrc = max(1, viewModel.engine.sourceDevice(for: bridge)?.totalOutputChannels ?? 64)
+                let maxSrc = max(1, viewModel.engine.sourceDevice(for: bridge)?.maxLogicalOutputChannel ?? 64)
                 let maxDst = max(1, viewModel.engine.destinationDevice(for: bridge)?.totalOutputChannels ?? 2)
                 let issuesByID = viewModel.engine.validationIssues(for: bridge)
 
@@ -57,8 +57,9 @@ struct RoutePatchListView: View {
                                 maxDestinationChannels: maxDst,
                                 meterModel: viewModel.meterModel(for: route.id),
                                 validationIssues: issuesByID[route.id] ?? [],
-                                onUpdate: { viewModel.updateRouteInSelectedBridge($0) },
-                                onRemove: { viewModel.removeRouteFromSelectedBridge(routeID: route.id) }
+                                onUpdate: { viewModel.updateRoute($0, inBridgeID: bridge.id) },
+                                onRemove: { viewModel.removeRoute(routeID: route.id, fromBridgeID: bridge.id) },
+                                onResetClips: { viewModel.resetClips(forBridgeID: bridge.id) }
                             )
 
                             if index < bridge.routes.count - 1 {

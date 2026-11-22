@@ -28,13 +28,7 @@ struct SignalPathHeaderView: View {
                 .textCase(.uppercase)
 
             Picker("Playback Interface", selection: sourceSelectionBinding) {
-                if viewModel.engine.availableDevices.isEmpty {
-                    Text("No Output Interfaces Found").tag(Optional<String>.none)
-                } else {
-                    ForEach(viewModel.engine.availableDevices) { device in
-                        Text(device.name).tag(Optional(device.uid))
-                    }
-                }
+                devicePickerOptions(selectedUID: bridge.sourceDeviceUID, savedName: bridge.sourceDeviceName)
             }
             .labelsHidden()
             .pickerStyle(.menu)
@@ -52,7 +46,7 @@ struct SignalPathHeaderView: View {
 
                 Menu {
                     Button {
-                        viewModel.updateSelectedBridge { $0.processTarget = .allProcesses }
+                        viewModel.updateBridge(id: bridge.id) { $0.processTarget = .allProcesses }
                     } label: {
                         menuCheckLabel("All Processes", isSelected: bridge.processTarget == .allProcesses)
                     }
@@ -63,7 +57,7 @@ struct SignalPathHeaderView: View {
                             if let bundleID = process.bundleID {
                                 let target = ProcessTarget.application(bundleID: bundleID, displayName: process.displayName)
                                 Button {
-                                    viewModel.updateSelectedBridge { $0.processTarget = target }
+                                    viewModel.updateBridge(id: bridge.id) { $0.processTarget = target }
                                 } label: {
                                     menuCheckLabel(
                                         process.isRunningOutput ? "\(process.displayName) (Active)" : process.displayName,
@@ -120,13 +114,7 @@ struct SignalPathHeaderView: View {
                 .textCase(.uppercase)
 
             Picker("Monitor Interface", selection: destinationSelectionBinding) {
-                if viewModel.engine.availableDevices.isEmpty {
-                    Text("No Output Interfaces Found").tag(Optional<String>.none)
-                } else {
-                    ForEach(viewModel.engine.availableDevices) { device in
-                        Text(device.name).tag(Optional(device.uid))
-                    }
-                }
+                devicePickerOptions(selectedUID: bridge.destinationDeviceUID, savedName: bridge.destinationDeviceName)
             }
             .labelsHidden()
             .pickerStyle(.menu)
@@ -152,6 +140,29 @@ struct SignalPathHeaderView: View {
     }
 
     @ViewBuilder
+    private func devicePickerOptions(selectedUID: String?, savedName: String?) -> some View {
+        let devices = viewModel.engine.availableDevices
+        if devices.isEmpty {
+            if let uid = selectedUID {
+                let offlineName = savedName ?? uid
+                Text("\(offlineName) (Offline)").tag(Optional(uid))
+            } else {
+                Text("No Output Interfaces Found").tag(Optional<String>.none)
+            }
+        } else {
+            if selectedUID == nil {
+                Text("Select Interface…").tag(Optional<String>.none)
+            } else if let uid = selectedUID, !devices.contains(where: { $0.uid == uid }) {
+                let offlineName = savedName ?? uid
+                Text("\(offlineName) (Offline)").tag(Optional(uid))
+            }
+            ForEach(devices) { device in
+                Text(device.name).tag(Optional(device.uid))
+            }
+        }
+    }
+
+    @ViewBuilder
     private func menuCheckLabel(_ title: String, isSelected: Bool) -> some View {
         if isSelected {
             Label(title, systemImage: "checkmark")
@@ -166,7 +177,7 @@ struct SignalPathHeaderView: View {
         Binding(
             get: { bridge.sourceDeviceUID },
             set: { newUID in
-                viewModel.updateSelectedBridge { $0.sourceDeviceUID = newUID }
+                viewModel.updateBridge(id: bridge.id) { $0.sourceDeviceUID = newUID }
             }
         )
     }
@@ -175,7 +186,7 @@ struct SignalPathHeaderView: View {
         Binding(
             get: { bridge.destinationDeviceUID },
             set: { newUID in
-                viewModel.updateSelectedBridge { $0.destinationDeviceUID = newUID }
+                viewModel.updateBridge(id: bridge.id) { $0.destinationDeviceUID = newUID }
             }
         )
     }

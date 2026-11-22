@@ -102,6 +102,10 @@ public final class RouteMeterModel {
         self.renderer = renderer
     }
 
+    public func detachRenderer() {
+        self.renderer = nil
+    }
+
     public func push(_ newLevel: SmoothedChannelMeter) {
         level = newLevel
         renderer?(newLevel)
@@ -255,23 +259,45 @@ public final class AppViewModel {
         engine.updateBridge(config)
     }
 
-    public func updateSelectedBridge(_ mutate: (inout AudioBridgeConfiguration) -> Void) {
-        guard var config = selectedBridge else { return }
+    public func updateBridge(id: UUID, _ mutate: (inout AudioBridgeConfiguration) -> Void) {
+        guard var config = engine.bridge(for: id) else { return }
         mutate(&config)
         engine.updateBridge(config)
     }
 
+    public func updateSelectedBridge(_ mutate: (inout AudioBridgeConfiguration) -> Void) {
+        guard let id = selectedBridge?.id else { return }
+        updateBridge(id: id, mutate)
+    }
+
     public func toggleSelectedBridge() {
         guard let id = selectedBridge?.id else { return }
-        engine.toggleBridge(id: id)
+        toggleBridge(id: id)
     }
 
     public func toggleBridge(id: UUID) {
+        let wasActive = engine.isBridgeActiveOrPending(id)
         engine.toggleBridge(id: id)
+        if wasActive && (!isMainWindowVisible || selectedBridge?.id != id) {
+            resetRouteMeters(forBridgeID: id)
+        }
     }
 
     public func stopAllBridges() {
         engine.stopAll()
+        let activeSelectedID = selectedBridge?.id
+        for bridge in engine.bridges where !isMainWindowVisible || bridge.id != activeSelectedID {
+            resetRouteMeters(forBridgeID: bridge.id)
+        }
+    }
+
+    public func resetClips(forBridgeID id: UUID) {
+        engine.resetClips(forBridgeID: id)
+    }
+
+    public func resetClipsForSelectedBridge() {
+        guard let id = selectedBridge?.id else { return }
+        resetClips(forBridgeID: id)
     }
 
     public func refreshDevices() {
@@ -335,11 +361,11 @@ public final class AppViewModel {
         }
     }
 
-    // MARK: - Mono Channel Editing inside Selected Bridge
+    // MARK: - Mono Channel Editing inside Bridges
 
-    public func addChannelToSelectedBridge() {
-        updateSelectedBridge { config in
-            let maxSrc = engine.sourceDevice(for: config)?.totalOutputChannels ?? 64
+    public func addChannel(toBridgeID id: UUID) {
+        updateBridge(id: id) { config in
+            let maxSrc = engine.sourceDevice(for: config)?.maxLogicalOutputChannel ?? 64
             let maxDst = engine.destinationDevice(for: config)?.totalOutputChannels ?? 2
 
             let nextSrc: Int
@@ -352,9 +378,15 @@ public final class AppViewModel {
                 nextDst = 1
             }
 
+            let existingLabels = Set(config.routes.map(\.label))
+            var labelNumber = 1
+            while existingLabels.contains("Channel \(labelNumber)") {
+                labelNumber += 1
+            }
+
             config.routes.append(
                 ChannelRoute(
-                    label: "Channel \(config.routes.count + 1)",
+                    label: "Channel \(labelNumber)",
                     isEnabled: true,
                     sourceChannel: max(1, min(nextSrc, maxSrc)),
                     destinationChannel: max(1, min(nextDst, maxDst))
@@ -363,18 +395,33 @@ public final class AppViewModel {
         }
     }
 
-    public func updateRouteInSelectedBridge(_ updated: ChannelRoute) {
-        updateSelectedBridge { config in
+    public func addChannelToSelectedBridge() {
+        guard let id = selectedBridge?.id else { return }
+        addChannel(toBridgeID: id)
+    }
+
+    public func updateRoute(_ updated: ChannelRoute, inBridgeID id: UUID) {
+        updateBridge(id: id) { config in
             guard let idx = config.routes.firstIndex(where: { $0.id == updated.id }) else { return }
             config.routes[idx] = updated
         }
     }
 
-    public func removeRouteFromSelectedBridge(routeID: UUID) {
+    public func updateRouteInSelectedBridge(_ updated: ChannelRoute) {
+        guard let id = selectedBridge?.id else { return }
+        updateRoute(updated, inBridgeID: id)
+    }
+
+    public func removeRoute(routeID: UUID, fromBridgeID id: UUID) {
         routeMeterModels.removeValue(forKey: routeID)
-        updateSelectedBridge { config in
+        updateBridge(id: id) { config in
             config.routes.removeAll { $0.id == routeID }
         }
+    }
+
+    public func removeRouteFromSelectedBridge(routeID: UUID) {
+        guard let id = selectedBridge?.id else { return }
+        removeRoute(routeID: routeID, fromBridgeID: id)
     }
 
     // MARK: - Isolated Metering Lookup & Visibility Lifecycle
@@ -405,6 +452,15 @@ public final class AppViewModel {
         engine.shutdown()
     }
 
+    private func resetRouteMeters(forBridgeID id: UUID) {
+        guard let config = engine.bridge(for: id) else { return }
+        for route in config.routes {
+            if let model = routeMeterModels[route.id], !model.level.isSilent {
+                model.push(SmoothedChannelMeter())
+            }
+        }
+    }
+
     private func stopMeterLoop() {
         meterTask?.cancel()
         meterTask = nil
@@ -419,6 +475,10 @@ public final class AppViewModel {
                 let now = ProcessInfo.processInfo.systemUptime
                 let dt = Float(max(0.016, min(0.1, now - lastTick)))
                 lastTick = now
+
+                if self.engine.anyBridgeRunning {
+                    self.engine.syncXRunCounts()
+                }
 
                 var isActiveMetering = false
                 var anyDecaying = false

@@ -4,15 +4,40 @@ import Synchronization
 /// Wait-free Single-Producer Single-Consumer (SPSC) planar audio ring buffer with
 /// integrated PI-controlled 4-point cubic Hermite drift compensation and sample-rate conversion.
 ///
-/// Designed for pro-audio decoupling: only the **active routed mono channels** (`1...N`)
-/// are written and resampled, avoiding wasted ASRC across 64+ unused hardware tap channels.
+/// Designed for pro-audio decoupling: each active source channel writes to its own dedicated
+/// planar slot (`0..<128`), completely eliminating cross-channel pops or stale-frame reads when
+/// routes are edited, fanned out, or muted live.
 public final class LockFreeAudioRingBuffer: @unchecked Sendable {
-    public static let maxChannels = 64
-    public static let capacityFrames = 8192
+    public static let maxChannels = 128
+    public static let capacityFrames = 16_384
     private static let mask: UInt64 = UInt64(capacityFrames - 1)
+    private static let slotMicroFadeLength: UInt64 = 32
+
+    /// Immutable per-block consumer render parameters computed once per output callback in `beginRead`.
+    public struct ReadBlockPlan: Sendable {
+        public let startFrame: UInt64
+        public let fractionalPhase: Double
+        public let stepRatio: Double
+        public let outputFrameCount: Int
+        public let fadeInRemaining: Int
+        public let fadeInLength: Int
+        public let canUseExactCopy: Bool
+        public let endFrame: UInt64
+        public let endFractionalPhase: Double
+        public let endFadeInRemaining: Int
+    }
+
+    public enum ReadBeginResult: Sendable {
+        case notReady(xrun: Bool)
+        case ready(plan: ReadBlockPlan, xrun: Bool)
+    }
 
     /// Contiguous planar storage: channel `c` occupies `[c * capacityFrames ..< (c + 1) * capacityFrames]`.
+    /// Allocated with `calloc` so unused virtual channel slots consume zero physical RAM pages.
     private let storage: UnsafeMutablePointer<Float>
+
+    /// Per-slot monotonic frame fence (`UInt64.max` when inactive).
+    private let slotValidFromFrame: UnsafeMutablePointer<Atomic<UInt64>>
 
     /// Monotonic frame counters (only producer writes `writeIndex`, only consumer writes `readIndex`).
     private let writeIndex = Atomic<UInt64>(0)
@@ -29,13 +54,21 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
 
     public init() {
         let totalFloats = Self.maxChannels * Self.capacityFrames
-        storage = .allocate(capacity: totalFloats)
-        storage.initialize(repeating: 0.0, count: totalFloats)
+        guard let raw = calloc(totalFloats, MemoryLayout<Float>.size) else {
+            fatalError("Failed to allocate LockFreeAudioRingBuffer storage")
+        }
+        storage = raw.bindMemory(to: Float.self, capacity: totalFloats)
+
+        slotValidFromFrame = .allocate(capacity: Self.maxChannels)
+        for slot in 0..<Self.maxChannels {
+            slotValidFromFrame.advanced(by: slot).initialize(to: Atomic<UInt64>(UInt64.max))
+        }
     }
 
     deinit {
-        storage.deinitialize(count: Self.maxChannels * Self.capacityFrames)
-        storage.deallocate()
+        slotValidFromFrame.deinitialize(count: Self.maxChannels)
+        slotValidFromFrame.deallocate()
+        free(storage)
     }
 
     /// Configures nominal sample rates and target latency fill while audio I/O is stopped.
@@ -50,7 +83,7 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         baseRatio = srcRate / dstRate
 
         // Keep enough safety headroom for jitter between independent hardware/software clocks
-        // while staying low-latency (~10–25 ms depending on host buffer size).
+        // while staying low-latency (~10–30 ms depending on host buffer size).
         let maxBuf = max(64, max(sourceBufferFrames, destinationBufferFrames))
         let scaledBuf = Int(ceil(Double(maxBuf) * max(1.0, baseRatio)))
         let desired = max(512, min(Self.capacityFrames / 2, scaledBuf * 2 + 128))
@@ -58,15 +91,17 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         reset()
     }
 
-    /// Resets cursors and zeroes storage (call only when stopped).
+    /// Resets cursors and invalidates all channel slots (call only when stopped).
     public func reset() {
         writeIndex.store(0, ordering: .relaxed)
         readIndex.store(0, ordering: .relaxed)
+        for slot in 0..<Self.maxChannels {
+            slotValidFromFrame.advanced(by: slot).pointee.store(UInt64.max, ordering: .relaxed)
+        }
         fractionalPhase = 0.0
         integralError = 0.0
         isPrimed = false
         fadeInRemaining = 0
-        memset(storage, 0, Self.maxChannels * Self.capacityFrames * MemoryLayout<Float>.size)
     }
 
     /// Current estimated latency of the drift buffer in milliseconds at the source sample rate.
@@ -78,7 +113,7 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
     // MARK: - Producer (Tap Input IOProc Thread)
 
     /// Returns the starting frame index for writing `frameCount` frames into planar channel slots.
-    /// Call `commitWrite(frames:)` after populating channel slots `0..<activeChannelCount`.
+    /// Call `commitWrite(newWriteIndex:)` after populating active channel slots.
     @inline(__always)
     public func beginWrite(frameCount: Int) -> UInt64 {
         writeIndex.load(ordering: .relaxed)
@@ -91,7 +126,28 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         storage[idx] = sample
     }
 
-    /// Publishes `frameCount` newly written frames to the consumer thread.
+    /// Marks `slot` as containing valid audio starting from monotonic frame `frame`.
+    @inline(__always)
+    public func markSlotActive(_ slot: Int, validFrom frame: UInt64) {
+        guard slot >= 0, slot < Self.maxChannels else { return }
+        slotValidFromFrame.advanced(by: slot).pointee.store(frame, ordering: .releasing)
+    }
+
+    /// Marks `slot` inactive (`UInt64.max`) so consumers immediately stop reading stale tail frames.
+    @inline(__always)
+    public func markSlotInactive(_ slot: Int) {
+        guard slot >= 0, slot < Self.maxChannels else { return }
+        slotValidFromFrame.advanced(by: slot).pointee.store(UInt64.max, ordering: .releasing)
+    }
+
+    /// Reads the monotonic frame from which `slot` holds valid producer samples (`UInt64.max` if inactive).
+    @inline(__always)
+    public func slotValidFrom(_ slot: Int) -> UInt64 {
+        guard slot >= 0, slot < Self.maxChannels else { return UInt64.max }
+        return slotValidFromFrame.advanced(by: slot).pointee.load(ordering: .acquiring)
+    }
+
+    /// Publishes newly written frames to the consumer thread.
     @inline(__always)
     public func commitWrite(newWriteIndex: UInt64) {
         writeIndex.store(newWriteIndex, ordering: .releasing)
@@ -99,53 +155,48 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
 
     // MARK: - Consumer (Monitor Output IOProc Thread)
 
-    /// Reads `outputFrameCount` frames for `activeSlots` channels (`0..<activeSlots`), applying
-    /// PI drift compensation and 4-point cubic Hermite interpolation, and delivers each sample
-    /// through `consume(slot, outputFrame, sample)`.
-    ///
-    /// Returns `true` if audio was rendered, or `false` if waiting to prime / recovering from XRun.
+    /// Prepares a read plan for `outputFrameCount` frames on the consumer audio thread,
+    /// handling initial priming, overflow/underflow XRun recovery, and PI drift tracking.
     @inline(__always)
-    public func readResampled(
-        activeSlots: Int,
-        outputFrameCount: Int,
-        onXRun: () -> Void,
-        consume: (_ slot: Int, _ frame: Int, _ sample: Float) -> Void
-    ) -> Bool {
-        guard activeSlots > 0, activeSlots <= Self.maxChannels, outputFrameCount > 0 else {
-            return false
+    public func beginRead(outputFrameCount: Int) -> ReadBeginResult {
+        guard outputFrameCount > 0 else {
+            return .notReady(xrun: false)
         }
 
         let wPos = writeIndex.load(ordering: .acquiring)
         var rPos = readIndex.load(ordering: .relaxed)
 
-        let available = wPos >= rPos ? Int(wPos - rPos) : 0
-        let neededSourceFrames = Int(ceil(Double(outputFrameCount) * baseRatio)) + 6
+        let maxStepRatio = baseRatio * 1.004
+        let neededSourceFrames = Int(ceil(Double(outputFrameCount) * maxStepRatio)) + 4
+        let primeThreshold = max(Int(targetFillFrames), neededSourceFrames + 64)
 
         // 1. Initial prime: wait until buffer has enough frames to stay safely centered without immediate underflow.
-        let primeThreshold = max(Int(targetFillFrames), neededSourceFrames + 64)
         if !isPrimed {
+            let available = wPos >= rPos ? Int(wPos - rPos) : 0
             if available >= primeThreshold {
-                let targetStart = wPos &- UInt64(primeThreshold)
-                rPos = targetStart
+                rPos = wPos &- UInt64(primeThreshold)
                 readIndex.store(rPos, ordering: .relaxed)
                 fractionalPhase = 0.0
                 integralError = 0.0
                 isPrimed = true
                 fadeInRemaining = fadeInLength
             } else {
-                return false
+                return .notReady(xrun: false)
             }
         }
 
-        // 2. Overflow protection (e.g. consumer stalled or wake from sleep): snap back to targetFill.
-        let maxAllowedFill = Self.capacityFrames - 256
-        if available > maxAllowedFill {
-            rPos = wPos &- UInt64(Int(targetFillFrames))
+        // 2. Overflow protection (e.g. consumer stalled or wake from sleep): snap back cleanly.
+        var didXRun = false
+        let maxAllowedFill = Self.capacityFrames - 512
+        let currentFill = wPos >= rPos ? Int(wPos - rPos) : 0
+        if currentFill > maxAllowedFill {
+            let snapFill = min(maxAllowedFill, max(Int(targetFillFrames), neededSourceFrames + 64))
+            rPos = wPos &- UInt64(snapFill)
             readIndex.store(rPos, ordering: .relaxed)
             fractionalPhase = 0.0
             integralError = 0.0
             fadeInRemaining = fadeInLength
-            onXRun()
+            didXRun = true
         }
 
         // 3. Underflow protection (e.g. source stopped or paused): re-prime silently without clicks.
@@ -153,8 +204,7 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         if currentAvailable < Double(neededSourceFrames) {
             isPrimed = false
             integralError = 0.0
-            onXRun()
-            return false
+            return .notReady(xrun: true)
         }
 
         // 4. Smooth PI controller adjusts resampling ratio by tiny inaudible ppm increments
@@ -166,47 +216,94 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         let correction = max(-0.004, min(0.004, fillError * kp + integralError * ki))
         let stepRatio = baseRatio * (1.0 + correction)
 
-        // Ensure we have 1 history sample before rPos for 4-point Hermite interpolation.
         let canUseExactCopy = abs(stepRatio - 1.0) < 1e-6 && fractionalPhase < 1e-5 && fadeInRemaining == 0
 
+        let endFrame: UInt64
+        let endFractionalPhase: Double
+        let endFadeInRemaining: Int
+
         if canUseExactCopy {
-            // Bit-transparent 1:1 unity copy fast path when clocks match cleanly.
-            for slot in 0..<activeSlots {
-                let base = slot * Self.capacityFrames
-                for f in 0..<outputFrameCount {
-                    let sIdx = Int((rPos &+ UInt64(f)) & Self.mask)
-                    consume(slot, f, storage[base + sIdx])
+            endFrame = rPos &+ UInt64(outputFrameCount)
+            endFractionalPhase = fractionalPhase
+            endFadeInRemaining = 0
+        } else {
+            var intPos = rPos
+            var phase = fractionalPhase
+            for _ in 0..<outputFrameCount {
+                phase += stepRatio
+                let whole = UInt64(phase)
+                if whole > 0 {
+                    intPos &+= whole
+                    phase -= Double(whole)
                 }
             }
-            rPos &+= UInt64(outputFrameCount)
-            readIndex.store(rPos, ordering: .releasing)
-            return true
+            endFrame = intPos
+            endFractionalPhase = phase
+            endFadeInRemaining = max(0, fadeInRemaining - outputFrameCount)
         }
 
-        // 4-point cubic Hermite interpolation (studio-grade smoothness, negligible CPU for routed slots).
-        var localFade = fadeInRemaining
-        var phase = fractionalPhase
-        var intPos = rPos
+        let plan = ReadBlockPlan(
+            startFrame: rPos,
+            fractionalPhase: fractionalPhase,
+            stepRatio: stepRatio,
+            outputFrameCount: outputFrameCount,
+            fadeInRemaining: fadeInRemaining,
+            fadeInLength: fadeInLength,
+            canUseExactCopy: canUseExactCopy,
+            endFrame: endFrame,
+            endFractionalPhase: endFractionalPhase,
+            endFadeInRemaining: endFadeInRemaining
+        )
+        return .ready(plan: plan, xrun: didXRun)
+    }
 
-        // Precompute integer positions & fractional weights once per output frame? Even simpler:
-        // outer loop over slots with same phase progression is cache-friendly & branch-minimal.
-        let initialIntPos = intPos
-        let initialPhase = phase
-        let initialFade = localFade
+    /// Renders `slot` according to `plan`, summing directly into `dstPtr` with stride `dstStride`
+    /// starting at `dstOffset` (zero heap allocations, zero closures).
+    @inline(__always)
+    public func renderSlot(
+        _ slot: Int,
+        plan: ReadBlockPlan,
+        into dstPtr: UnsafeMutablePointer<Float>,
+        dstOffset: Int,
+        dstStride: Int
+    ) {
+        guard slot >= 0, slot < Self.maxChannels else { return }
+        let validFrom = slotValidFrom(slot)
+        guard validFrom != UInt64.max, plan.endFrame > validFrom else { return }
 
-        for slot in 0..<activeSlots {
-            let base = slot * Self.capacityFrames
-            intPos = initialIntPos
-            phase = initialPhase
-            localFade = initialFade
+        let base = slot * Self.capacityFrames
+        var dIdx = dstOffset
 
-            for f in 0..<outputFrameCount {
-                let idx0 = Int((intPos &- 1) & Self.mask)
+        if plan.canUseExactCopy {
+            for f in 0..<plan.outputFrameCount {
+                let frame = plan.startFrame &+ UInt64(f)
+                if frame >= validFrom {
+                    var sample = storage[base + Int(frame & Self.mask)]
+                    let age = frame &- validFrom
+                    if age < Self.slotMicroFadeLength {
+                        sample *= Float(age) / Float(Self.slotMicroFadeLength)
+                    }
+                    dstPtr[dIdx] += sample
+                }
+                dIdx += dstStride
+            }
+            return
+        }
+
+        var intPos = plan.startFrame
+        var phase = plan.fractionalPhase
+        var localFade = plan.fadeInRemaining
+        let invFadeLength = Float(1.0) / Float(plan.fadeInLength)
+
+        for _ in 0..<plan.outputFrameCount {
+            if intPos >= validFrom {
                 let idx1 = Int(intPos & Self.mask)
                 let idx2 = Int((intPos &+ 1) & Self.mask)
                 let idx3 = Int((intPos &+ 2) & Self.mask)
 
-                let y0 = storage[base + idx0]
+                let y0: Float = intPos > validFrom
+                    ? storage[base + Int((intPos &- 1) & Self.mask)]
+                    : 0.0
                 let y1 = storage[base + idx1]
                 let y2 = storage[base + idx2]
                 let y3 = storage[base + idx3]
@@ -218,26 +315,36 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
                 let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2)
                 var sample = ((c3 * t + c2) * t + c1) * t + c0
 
+                let age = intPos &- validFrom
+                if age < Self.slotMicroFadeLength {
+                    sample *= Float(age) / Float(Self.slotMicroFadeLength)
+                }
                 if localFade > 0 {
-                    let gain = Float(fadeInLength - localFade) / Float(fadeInLength)
+                    let gain = Float(plan.fadeInLength - localFade) * invFadeLength
                     sample *= gain
-                    localFade -= 1
                 }
-
-                consume(slot, f, sample)
-
-                phase += stepRatio
-                let whole = UInt64(phase)
-                if whole > 0 {
-                    intPos &+= whole
-                    phase -= Double(whole)
-                }
+                dstPtr[dIdx] += sample
             }
-        }
 
-        fractionalPhase = phase
-        fadeInRemaining = localFade
-        readIndex.store(intPos, ordering: .releasing)
-        return true
+            if localFade > 0 {
+                localFade -= 1
+            }
+
+            phase += plan.stepRatio
+            let whole = UInt64(phase)
+            if whole > 0 {
+                intPos &+= whole
+                phase -= Double(whole)
+            }
+            dIdx += dstStride
+        }
+    }
+
+    /// Commits the consumer read cursor and resampler state after rendering all active routes.
+    @inline(__always)
+    public func commitRead(plan: ReadBlockPlan) {
+        fractionalPhase = plan.endFractionalPhase
+        fadeInRemaining = plan.endFadeInRemaining
+        readIndex.store(plan.endFrame, ordering: .releasing)
     }
 }

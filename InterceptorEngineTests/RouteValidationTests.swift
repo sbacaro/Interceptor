@@ -1,3 +1,4 @@
+import Foundation
 import InterceptorEngine
 import Testing
 
@@ -78,5 +79,39 @@ struct RouteValidationTests {
 
         let required = multiStreamDevice.requiredStreamIndices(forLogicalChannels: [7, 8, 9, 10])
         #expect(required == [0, 1])
+    }
+
+    @Test("Clamps non-positive channel indices when decoding persisted routes")
+    func clampsDecodedChannelIndices() throws {
+        let json = """
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "label": "Corrupt Channel",
+            "isEnabled": true,
+            "sourceChannel": 0,
+            "destinationChannel": -3
+        }
+        """
+        let decoded = try JSONDecoder().decode(ChannelRoute.self, from: Data(json.utf8))
+        #expect(decoded.sourceChannel == 1)
+        #expect(decoded.destinationChannel == 1)
+    }
+
+    @Test("Flags logical channels falling in gaps between non-contiguous output streams")
+    func detectsMultiStreamChannelGaps() {
+        let gappedDevice = makeDevice(uid: "gapped", streams: [(1, 4), (9, 4)])
+        let dst = makeDevice(uid: "dst-2", streams: [(1, 2)])
+
+        let gapRoute = ChannelRoute(sourceChannel: 5, destinationChannel: 1)
+        let validRoute = ChannelRoute(sourceChannel: 9, destinationChannel: 2)
+
+        let issues = RouteValidator.validate(
+            routes: [gapRoute, validRoute],
+            sourceDevice: gappedDevice,
+            destinationDevice: dst
+        )
+
+        #expect(issues[gapRoute.id] == [.sourceChannelOutOfRange(requested: 5, available: 12)])
+        #expect(issues[validRoute.id] == nil)
     }
 }

@@ -82,8 +82,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         // 2. Create passive, unmuted, private Core Audio Tap(s) for each required output stream.
         var createdTaps: [AudioHardwareTap] = []
         var tapDicts: [[String: Any]] = []
-        var logicalToTapChannel: [Int: Int] = [:]
-        var tapChannelCursor = 0
+        var tapStreamMeta: [(streamIndex: Int, fallbackChannels: Int)] = []
 
         do {
             for streamIndex in streamIndices {
@@ -101,19 +100,13 @@ public final class AudioTapBridge: @unchecked Sendable {
 
                 let tapUID = try tap.uid
                 let tapFormat = try? tap.format
-                let streamChannelCount: Int = {
+                let fallbackChannels: Int = {
                     if let fmtCh = tapFormat?.mChannelsPerFrame, fmtCh > 0 {
                         return Int(fmtCh)
                     }
                     return sourceDevice.outputStreams.first(where: { $0.streamIndex == streamIndex })?.channelCount ?? 2
                 }()
-
-                if let streamDesc = sourceDevice.outputStreams.first(where: { $0.streamIndex == streamIndex }) {
-                    for localIdx in 0..<streamChannelCount {
-                        logicalToTapChannel[streamDesc.startingChannel + localIdx] = tapChannelCursor + localIdx
-                    }
-                }
-                tapChannelCursor += streamChannelCount
+                tapStreamMeta.append((streamIndex: streamIndex, fallbackChannels: fallbackChannels))
 
                 // Tap-Only capture with Core Audio SubTap drift compensation DISABLED so Core Audio
                 // never wastes CPU resampling 64+ unused hardware channels. Drift compensation & SRC
@@ -177,12 +170,32 @@ public final class AudioTapBridge: @unchecked Sendable {
             throw AudioTapBridgeError.emptyAggregateStreams
         }
 
-        let actualSourceRate = (try? aggregate.nominalSampleRate)
-            ?? (try? coreSource.nominalSampleRate)
-            ?? sourceDevice.nominalSampleRate
+        // Map each source logical channel onto its exact zero-based channel inside `inputLayout`
+        // using the realized aggregate `inputStreamConfiguration`.
+        var logicalToTapChannel: [Int: Int] = [:]
+        var tapChannelCursor = 0
+        let useActualInputConfig = inputConfig.count == tapStreamMeta.count
+        for (idx, meta) in tapStreamMeta.enumerated() {
+            let actualStreamChannels = useActualInputConfig
+                ? Int(inputConfig[idx].mNumberChannels)
+                : meta.fallbackChannels
+            if let streamDesc = sourceDevice.outputStreams.first(where: { $0.streamIndex == meta.streamIndex }) {
+                let mappedCount = min(actualStreamChannels, streamDesc.channelCount)
+                for localIdx in 0..<mappedCount {
+                    logicalToTapChannel[streamDesc.startingChannel + localIdx] = tapChannelCursor + localIdx
+                }
+            }
+            tapChannelCursor += actualStreamChannels
+        }
+
+        let coreSourceRate = (try? coreSource.nominalSampleRate) ?? sourceDevice.nominalSampleRate
+        let actualSourceRate = (try? aggregate.nominalSampleRate) ?? coreSourceRate
         let actualDestRate = (try? coreDest.nominalSampleRate) ?? destinationDevice.nominalSampleRate
         let actualTapFrames = (try? aggregate.bufferFrameSize) ?? sourceDevice.bufferFrameSize
+        let actualSourceFrames = (try? coreSource.bufferFrameSize) ?? sourceDevice.bufferFrameSize
         let actualDestFrames = (try? coreDest.bufferFrameSize) ?? destinationDevice.bufferFrameSize
+        let sourceStreamSignature = ((try? coreSource.outputStreamConfiguration) ?? []).map(\.mNumberChannels)
+        let destStreamSignature = outputConfig.map(\.mNumberChannels)
         let destOutputLatency = (try? coreDest.outputLatency) ?? destinationDevice.outputLatencyFrames
         let destSafetyOffset = (try? coreDest.outputSafetyOffset) ?? 0
 
@@ -191,6 +204,7 @@ public final class AudioTapBridge: @unchecked Sendable {
             routes: routes,
             sourceLogicalToTapChannel: { logicalToTapChannel[$0] }
         )
+        processor.resetRuntimeState()
         processor.ringBuffer.configure(
             sourceSampleRate: actualSourceRate,
             destinationSampleRate: actualDestRate,
@@ -202,7 +216,6 @@ public final class AudioTapBridge: @unchecked Sendable {
             outputLayout: outputLayout
         )
         processor.updateRouting(initialSnapshot)
-        processor.meterBank.resetAll()
 
         let ringLatencyMs = processor.ringBuffer.estimatedBufferLatencyMs(sourceSampleRate: actualSourceRate)
         let destHardwareLatencyMs = actualDestRate > 0
@@ -272,8 +285,12 @@ public final class AudioTapBridge: @unchecked Sendable {
         attachDeviceListeners(
             source: coreSource,
             destination: coreDest,
-            expectedSourceRate: actualSourceRate,
+            expectedSourceRate: coreSourceRate,
             expectedDestinationRate: actualDestRate,
+            expectedSourceBufferFrames: actualSourceFrames,
+            expectedDestBufferFrames: actualDestFrames,
+            expectedSourceStreamSignature: sourceStreamSignature,
+            expectedDestStreamSignature: destStreamSignature,
             onDeviceInvalidated: onDeviceInvalidated,
             onFormatChanged: onFormatChanged
         )
@@ -348,8 +365,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         isTapStarted = false
         isMonitorStarted = false
         activeInfo = nil
-        processor.ringBuffer.reset()
-        processor.meterBank.resetAll()
+        processor.resetRuntimeState()
     }
 
     // MARK: - Helpers
@@ -369,6 +385,7 @@ public final class AudioTapBridge: @unchecked Sendable {
             alignment: MemoryLayout<AudioHardwareIOProcStreamUsage>.alignment
         )
         defer { rawBuffer.deallocate() }
+        _ = rawBuffer.initializeMemory(as: UInt8.self, repeating: 0, count: byteSize)
 
         let usage = rawBuffer.assumingMemoryBound(to: AudioHardwareIOProcStreamUsage.self)
         usage.pointee.mIOProc = unsafeBitCast(ioProcID, to: UnsafeMutableRawPointer.self)
@@ -416,6 +433,7 @@ public final class AudioTapBridge: @unchecked Sendable {
                 stream: UInt(streamIndex)
             )
             description.isExclusive = true
+            description.bundleIDs = [Bundle.main.bundleIdentifier ?? "com.interceptor.audio"]
 
         case let .application(bundleID, _):
             description = CATapDescription()
@@ -443,11 +461,24 @@ public final class AudioTapBridge: @unchecked Sendable {
         }
     }
 
+    private static var monitoredProperties: [AudioObjectPropertyAddress] {
+        [
+            PropertyAddress(kAudioDevicePropertyDeviceIsAlive),
+            PropertyAddress(kAudioDevicePropertyNominalSampleRate),
+            PropertyAddress(kAudioDevicePropertyBufferFrameSize),
+            PropertyAddress(kAudioDevicePropertyStreamConfiguration, scope: kAudioDevicePropertyScopeOutput)
+        ]
+    }
+
     private func attachDeviceListeners(
         source: AudioHardwareDevice,
         destination: AudioHardwareDevice,
         expectedSourceRate: Double,
         expectedDestinationRate: Double,
+        expectedSourceBufferFrames: Int,
+        expectedDestBufferFrames: Int,
+        expectedSourceStreamSignature: [UInt32],
+        expectedDestStreamSignature: [UInt32],
         onDeviceInvalidated: @escaping @Sendable (_ role: DeviceRole) -> Void,
         onFormatChanged: @escaping @Sendable () -> Void
     ) {
@@ -456,6 +487,10 @@ public final class AudioTapBridge: @unchecked Sendable {
             destinationID: destination.id,
             expectedSourceRate: expectedSourceRate,
             expectedDestinationRate: expectedDestinationRate,
+            expectedSourceBufferFrames: expectedSourceBufferFrames,
+            expectedDestBufferFrames: expectedDestBufferFrames,
+            expectedSourceStreamSignature: expectedSourceStreamSignature,
+            expectedDestStreamSignature: expectedDestStreamSignature,
             onDeviceInvalidated: onDeviceInvalidated,
             onFormatChanged: onFormatChanged
         )
@@ -463,10 +498,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         self.monitoredSourceDevice = source
         self.monitoredDestinationDevice = destination
 
-        let addresses = [
-            PropertyAddress(kAudioDevicePropertyDeviceIsAlive),
-            PropertyAddress(kAudioDevicePropertyNominalSampleRate)
-        ]
+        let addresses = Self.monitoredProperties
 
         source.delegates.append(proxy)
         try? source.addListener(forProperties: addresses, dispatchQueue: deviceListenerQueue)
@@ -479,10 +511,7 @@ public final class AudioTapBridge: @unchecked Sendable {
 
     private func detachDeviceListeners() {
         guard let proxy = deviceListenerProxy else { return }
-        let addresses = [
-            PropertyAddress(kAudioDevicePropertyDeviceIsAlive),
-            PropertyAddress(kAudioDevicePropertyNominalSampleRate)
-        ]
+        let addresses = Self.monitoredProperties
 
         if let source = monitoredSourceDevice {
             try? source.removeListener(forProperties: addresses, dispatchQueue: deviceListenerQueue)
@@ -504,6 +533,10 @@ private final class DeviceChangeListenerProxy: PropertyListenerDelegate, @unchec
     private let destinationID: AudioObjectID
     private let expectedSourceRate: Double
     private let expectedDestinationRate: Double
+    private let expectedSourceBufferFrames: Int
+    private let expectedDestBufferFrames: Int
+    private let expectedSourceStreamSignature: [UInt32]
+    private let expectedDestStreamSignature: [UInt32]
     private let onDeviceInvalidated: @Sendable (_ role: DeviceRole) -> Void
     private let onFormatChanged: @Sendable () -> Void
 
@@ -512,6 +545,10 @@ private final class DeviceChangeListenerProxy: PropertyListenerDelegate, @unchec
         destinationID: AudioObjectID,
         expectedSourceRate: Double,
         expectedDestinationRate: Double,
+        expectedSourceBufferFrames: Int,
+        expectedDestBufferFrames: Int,
+        expectedSourceStreamSignature: [UInt32],
+        expectedDestStreamSignature: [UInt32],
         onDeviceInvalidated: @escaping @Sendable (_ role: DeviceRole) -> Void,
         onFormatChanged: @escaping @Sendable () -> Void
     ) {
@@ -519,34 +556,58 @@ private final class DeviceChangeListenerProxy: PropertyListenerDelegate, @unchec
         self.destinationID = destinationID
         self.expectedSourceRate = expectedSourceRate
         self.expectedDestinationRate = expectedDestinationRate
+        self.expectedSourceBufferFrames = expectedSourceBufferFrames
+        self.expectedDestBufferFrames = expectedDestBufferFrames
+        self.expectedSourceStreamSignature = expectedSourceStreamSignature
+        self.expectedDestStreamSignature = expectedDestStreamSignature
         self.onDeviceInvalidated = onDeviceInvalidated
         self.onFormatChanged = onFormatChanged
     }
 
     func propertiesChanged(properties: [AudioObjectPropertyAddress]) {
+        let sourceDevice = AudioHardwareDevice(id: sourceID)
+        let destDevice = AudioHardwareDevice(id: destinationID)
+        var formatChanged = false
+
         for prop in properties {
             switch prop.mSelector {
             case kAudioDevicePropertyDeviceIsAlive:
-                let sourceDevice = AudioHardwareDevice(id: sourceID)
-                let destDevice = AudioHardwareDevice(id: destinationID)
-                if (try? sourceDevice.isAlive) == false {
+                if (try? sourceDevice.isAlive) != true {
                     onDeviceInvalidated(.source)
                     return
                 }
-                if (try? destDevice.isAlive) == false {
+                if (try? destDevice.isAlive) != true {
                     onDeviceInvalidated(.destination)
                     return
                 }
             case kAudioDevicePropertyNominalSampleRate:
-                let currentSourceRate = (try? AudioHardwareDevice(id: sourceID).nominalSampleRate) ?? expectedSourceRate
-                let currentDestRate = (try? AudioHardwareDevice(id: destinationID).nominalSampleRate) ?? expectedDestinationRate
-                if abs(currentSourceRate - expectedSourceRate) > 1.0 || abs(currentDestRate - expectedDestinationRate) > 1.0 {
-                    onFormatChanged()
-                    return
+                let currentSourceRate = (try? sourceDevice.nominalSampleRate) ?? expectedSourceRate
+                let currentDestRate = (try? destDevice.nominalSampleRate) ?? expectedDestinationRate
+                if abs(currentSourceRate - expectedSourceRate) > 1.0 ||
+                    abs(currentDestRate - expectedDestinationRate) > 1.0 {
+                    formatChanged = true
+                }
+            case kAudioDevicePropertyBufferFrameSize:
+                let currentSourceFrames = (try? sourceDevice.bufferFrameSize) ?? expectedSourceBufferFrames
+                let currentDestFrames = (try? destDevice.bufferFrameSize) ?? expectedDestBufferFrames
+                if currentSourceFrames != expectedSourceBufferFrames ||
+                    currentDestFrames != expectedDestBufferFrames {
+                    formatChanged = true
+                }
+            case kAudioDevicePropertyStreamConfiguration:
+                let currentSourceSig = ((try? sourceDevice.outputStreamConfiguration) ?? []).map(\.mNumberChannels)
+                let currentDestSig = ((try? destDevice.outputStreamConfiguration) ?? []).map(\.mNumberChannels)
+                if (!currentSourceSig.isEmpty && currentSourceSig != expectedSourceStreamSignature) ||
+                    (!currentDestSig.isEmpty && currentDestSig != expectedDestStreamSignature) {
+                    formatChanged = true
                 }
             default:
                 break
             }
+        }
+
+        if formatChanged {
+            onFormatChanged()
         }
     }
 }

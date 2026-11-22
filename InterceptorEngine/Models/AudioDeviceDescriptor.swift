@@ -192,12 +192,22 @@ public struct AudioDeviceDescriptor: Codable, Sendable, Hashable, Identifiable {
         return indices.sorted()
     }
 
-    public var formattedSampleRate: String {
-        let khz = nominalSampleRate / 1000.0
+    /// Highest 1-based logical output channel index exposed by `outputStreams`.
+    public var maxLogicalOutputChannel: Int {
+        outputStreams.compactMap { $0.channelRange?.upperBound }.max() ?? totalOutputChannels
+    }
+
+    public static func formatSampleRate(_ hz: Double) -> String {
+        guard hz > 0 else { return "—" }
+        let khz = hz / 1000.0
         if khz.truncatingRemainder(dividingBy: 1.0) == 0 {
             return String(format: "%.0f kHz", khz)
         }
         return String(format: "%.1f kHz", khz)
+    }
+
+    public var formattedSampleRate: String {
+        Self.formatSampleRate(nominalSampleRate)
     }
 
     public var subtitle: String {
