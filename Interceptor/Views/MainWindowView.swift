@@ -1,3 +1,4 @@
+import AppKit
 import InterceptorEngine
 import SwiftUI
 
@@ -6,6 +7,9 @@ import SwiftUI
 /// Source ──▶ Monitor selection and discrete mono Channel Routes with inline studio VU meters.
 struct MainWindowView: View {
     @Bindable var viewModel: AppViewModel
+    let appDelegate: AppDelegate
+
+    @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -16,6 +20,17 @@ struct MainWindowView: View {
                 let telemetry = viewModel.engine.telemetry(for: bridge.id)
 
                 VStack(spacing: 0) {
+                    if viewModel.updater.shouldShowInAppBanner {
+                        UpdateBannerView(
+                            updater: viewModel.updater,
+                            onInstall: { update in
+                                viewModel.installAvailableUpdate(update)
+                            }
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
+                    }
+
                     if shouldShowBanner(for: telemetry.state) {
                         PermissionBannerView(
                             state: telemetry.state,
@@ -85,7 +100,26 @@ struct MainWindowView: View {
                         InspectorTelemetryView(viewModel: viewModel, bridge: bridge)
                     }
                 }
+
+                Button {
+                    viewModel.isSettingsPresented = true
+                } label: {
+                    Label("Settings…", systemImage: "gearshape")
+                }
+                .help("Open Interceptor settings (⌘,)")
             }
+        }
+        .background(
+            MainWindowRegistrationView { window in
+                appDelegate.registerMainWindow(window)
+            }
+        )
+        .onAppear {
+            appDelegate.openMainWindowAction = { openWindow(id: "main") }
+        }
+        .sheet(isPresented: $viewModel.isSettingsPresented) {
+            SettingsView(viewModel: viewModel)
+                .tint(Color("AccentColor"))
         }
     }
 
@@ -120,7 +154,37 @@ struct MainWindowView: View {
     }
 }
 
+/// Captures the hosting `NSWindow` for `MainWindowView` so `AppDelegate` observes
+/// close events exclusively for the main app window (ignoring `MenuBarExtra` panels).
+private struct MainWindowRegistrationView: NSViewRepresentable {
+    let onWindowAvailable: @MainActor (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> WindowObserverNSView {
+        let view = WindowObserverNSView()
+        view.onWindowAvailable = onWindowAvailable
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowObserverNSView, context: Context) {
+        nsView.onWindowAvailable = onWindowAvailable
+        if let window = nsView.window {
+            onWindowAvailable(window)
+        }
+    }
+}
+
+private final class WindowObserverNSView: NSView {
+    var onWindowAvailable: (@MainActor (NSWindow) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            onWindowAvailable?(window)
+        }
+    }
+}
+
 #Preview("Main Window") {
-    MainWindowView(viewModel: AppViewModel())
+    MainWindowView(viewModel: AppViewModel(), appDelegate: AppDelegate())
         .frame(width: 840, height: 500)
 }

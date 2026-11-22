@@ -2,6 +2,7 @@ import Foundation
 import InterceptorEngine
 import Observation
 import os
+import ServiceManagement
 
 /// Smoothed ballistic VU meter state rendered at 60 Hz per channel.
 public struct SmoothedChannelMeter: Sendable, Equatable {
@@ -62,18 +63,22 @@ public struct SmoothedChannelMeter: Sendable, Equatable {
 public final class AppViewModel {
     private enum DefaultsKey {
         static let autoReconnect = "com.interceptor.pref.autoReconnect"
-        static let keepRunningInMenuBar = "com.interceptor.pref.keepRunningInMenuBar"
         static let preferredBufferFrames = "com.interceptor.pref.preferredBufferFrames"
     }
 
     private let defaults: UserDefaults
+    private let logger = Logger(subsystem: "com.interceptor.audio", category: "AppViewModel")
     public let engine: InterceptorEngine
+    public let updater: GitHubReleaseUpdater
 
     /// Currently selected virtual routing bridge in the sidebar.
     public var selectedBridgeID: UUID?
 
     /// Controls the on-demand Bridge Info popover (`⌘I`).
     public var isBridgeInfoPresented: Bool = false
+
+    /// Controls the in-window Settings sheet (`⌘,`).
+    public var isSettingsPresented: Bool = false
 
     // MARK: - User Preferences
 
@@ -84,10 +89,6 @@ public final class AppViewModel {
         }
     }
 
-    public var keepRunningInMenuBar: Bool {
-        didSet { defaults.set(keepRunningInMenuBar, forKey: DefaultsKey.keepRunningInMenuBar) }
-    }
-
     /// `0` means Automatic (use destination device default buffer size).
     public var preferredBufferFramesSetting: Int {
         didSet {
@@ -95,6 +96,17 @@ public final class AppViewModel {
             engine.preferredBufferFrames = preferredBufferFramesSetting > 0 ? preferredBufferFramesSetting : nil
         }
     }
+
+    // MARK: - Launch at Login (SMAppService)
+
+    /// Reflects whether Interceptor is registered to open automatically at macOS login.
+    public private(set) var launchAtLoginEnabled: Bool = false
+
+    /// True when macOS Login Items requires explicit user approval in System Settings.
+    public private(set) var launchAtLoginNeedsApproval: Bool = false
+
+    /// Optional non-fatal message if login item registration could not be updated.
+    public private(set) var launchAtLoginErrorMessage: String?
 
     // MARK: - Live Per-Channel Meters (60 Hz)
 
@@ -104,30 +116,35 @@ public final class AppViewModel {
 
     public init(
         engine: InterceptorEngine = InterceptorEngine(),
+        updater: GitHubReleaseUpdater = GitHubReleaseUpdater(),
         defaults: UserDefaults = .standard
     ) {
         self.engine = engine
+        self.updater = updater
         self.defaults = defaults
 
         defaults.register(defaults: [
             DefaultsKey.autoReconnect: true,
-            DefaultsKey.keepRunningInMenuBar: true,
             DefaultsKey.preferredBufferFrames: 0
         ])
 
         let savedAutoReconnect = defaults.bool(forKey: DefaultsKey.autoReconnect)
-        let savedKeepMenuBar = defaults.bool(forKey: DefaultsKey.keepRunningInMenuBar)
         let savedBuffer = defaults.integer(forKey: DefaultsKey.preferredBufferFrames)
 
         self.autoReconnectEnabled = savedAutoReconnect
-        self.keepRunningInMenuBar = savedKeepMenuBar
         self.preferredBufferFramesSetting = savedBuffer
 
         engine.autoReconnectEnabled = savedAutoReconnect
         engine.preferredBufferFrames = savedBuffer > 0 ? savedBuffer : nil
 
         self.selectedBridgeID = engine.bridges.first?.id
+        refreshLaunchAtLoginStatus()
         startMeterLoop()
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            self?.updater.checkAutomaticallyIfNeeded()
+        }
     }
 
     // MARK: - Selected Bridge Convenience
@@ -202,6 +219,57 @@ public final class AppViewModel {
 
     public func openAudioCaptureSettings() {
         AudioCapturePermission.openSystemSettings()
+    }
+
+    public func refreshLaunchAtLoginStatus() {
+        let status = SMAppService.mainApp.status
+        switch status {
+        case .enabled:
+            launchAtLoginEnabled = true
+            launchAtLoginNeedsApproval = false
+        case .requiresApproval:
+            launchAtLoginEnabled = true
+            launchAtLoginNeedsApproval = true
+        case .notRegistered, .notFound:
+            launchAtLoginEnabled = false
+            launchAtLoginNeedsApproval = false
+        @unknown default:
+            launchAtLoginEnabled = false
+            launchAtLoginNeedsApproval = false
+        }
+    }
+
+    public func setLaunchAtLogin(_ enabled: Bool) {
+        launchAtLoginErrorMessage = nil
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else {
+                if SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval {
+                    try SMAppService.mainApp.unregister()
+                }
+            }
+        } catch {
+            logger.error("Failed to update Launch at Login (\(enabled)): \(error.localizedDescription)")
+            launchAtLoginErrorMessage = error.localizedDescription
+        }
+        refreshLaunchAtLoginStatus()
+    }
+
+    public func openLoginItemsSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
+
+    public func checkForUpdates() {
+        updater.checkForUpdates(userInitiated: true)
+    }
+
+    public func installAvailableUpdate(_ update: AvailableUpdate) {
+        updater.installUpdate(update) { [weak self] in
+            self?.shutdown()
+        }
     }
 
     // MARK: - Mono Channel Editing inside Selected Bridge

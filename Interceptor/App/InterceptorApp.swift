@@ -8,7 +8,7 @@ struct InterceptorApp: App {
 
     var body: some Scene {
         Window("Interceptor", id: "main") {
-            MainWindowView(viewModel: viewModel)
+            MainWindowView(viewModel: viewModel, appDelegate: appDelegate)
                 .tint(Color("AccentColor"))
                 .onAppear {
                     appDelegate.viewModel = viewModel
@@ -17,11 +17,11 @@ struct InterceptorApp: App {
         .defaultSize(width: 840, height: 500)
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands {
-            InterceptorCommands(viewModel: viewModel)
+            InterceptorCommands(viewModel: viewModel, appDelegate: appDelegate)
         }
 
         MenuBarExtra {
-            MenuBarPopoverView(viewModel: viewModel)
+            MenuBarPopoverView(viewModel: viewModel, appDelegate: appDelegate)
                 .tint(Color("AccentColor"))
         } label: {
             Label {
@@ -31,11 +31,6 @@ struct InterceptorApp: App {
             }
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView(viewModel: viewModel)
-                .tint(Color("AccentColor"))
-        }
     }
 
     private var menuBarSymbolName: String {
@@ -58,11 +53,24 @@ struct InterceptorApp: App {
     }
 }
 
-/// Native macOS menu bar commands — removes unused `Edit` and `View` menus.
+/// Native macOS menu bar commands — routes `⌘,` to the in-window Settings sheet and removes unused `Edit` and `View` menus.
 struct InterceptorCommands: Commands {
     @Bindable var viewModel: AppViewModel
+    let appDelegate: AppDelegate
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                appDelegate.showMainWindow(openSettings: true)
+            }
+            .keyboardShortcut(",", modifiers: .command)
+
+            Button("Check for Updates…") {
+                appDelegate.showMainWindow(openSettings: true)
+                viewModel.checkForUpdates()
+            }
+        }
+
         CommandGroup(replacing: .undoRedo) {}
         CommandGroup(replacing: .pasteboard) {}
         CommandGroup(replacing: .textEditing) {}

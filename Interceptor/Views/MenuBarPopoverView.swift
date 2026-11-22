@@ -6,8 +6,8 @@ import SwiftUI
 /// with identical native `Intercept` / `Stop` controls and clean macOS hover action rows.
 struct MenuBarPopoverView: View {
     @Bindable var viewModel: AppViewModel
+    let appDelegate: AppDelegate
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -91,14 +91,30 @@ struct MenuBarPopoverView: View {
 
             // Native Apple Menu-Style Action Rows
             VStack(spacing: 2) {
+                if let update = viewModel.updater.availableUpdate {
+                    MenuBarActionRow(
+                        title: LocalizedStringKey("Update Available (v\(update.version.description))…"),
+                        shortcut: nil,
+                        isHighlighted: true
+                    ) {
+                        viewModel.updater.isBannerDismissed = false
+                        appDelegate.openMainWindowAction = { openWindow(id: "main") }
+                        appDelegate.showMainWindow(openSettings: false)
+                    }
+
+                    Divider()
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 6)
+                }
+
                 MenuBarActionRow(title: "Open Interceptor", shortcut: nil) {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    appDelegate.openMainWindowAction = { openWindow(id: "main") }
+                    appDelegate.showMainWindow(openSettings: false)
                 }
 
                 MenuBarActionRow(title: "Settings…", shortcut: "⌘,") {
-                    openSettings()
-                    NSApp.activate(ignoringOtherApps: true)
+                    appDelegate.openMainWindowAction = { openWindow(id: "main") }
+                    appDelegate.showMainWindow(openSettings: true)
                 }
 
                 Divider()
@@ -112,6 +128,9 @@ struct MenuBarPopoverView: View {
             .padding(6)
         }
         .frame(width: 300)
+        .onAppear {
+            appDelegate.openMainWindowAction = { openWindow(id: "main") }
+        }
     }
 
     private var headerSubtitle: String {
@@ -130,6 +149,7 @@ struct MenuBarPopoverView: View {
 private struct MenuBarActionRow: View {
     let title: LocalizedStringKey
     let shortcut: String?
+    var isHighlighted: Bool = false
     let action: () -> Void
 
     @State private var isHovering = false
@@ -138,8 +158,8 @@ private struct MenuBarActionRow: View {
         Button(action: action) {
             HStack {
                 Text(title)
-                    .font(.callout)
-                    .foregroundStyle(.primary)
+                    .font(isHighlighted ? .callout.weight(.semibold) : .callout)
+                    .foregroundStyle(isHighlighted ? Color("AccentColor") : .primary)
                 Spacer()
                 if let shortcut {
                     Text(shortcut)
@@ -163,5 +183,5 @@ private struct MenuBarActionRow: View {
 }
 
 #Preview("Menu Bar Popover") {
-    MenuBarPopoverView(viewModel: AppViewModel())
+    MenuBarPopoverView(viewModel: AppViewModel(), appDelegate: AppDelegate())
 }

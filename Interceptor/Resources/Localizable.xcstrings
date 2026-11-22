@@ -196,6 +196,9 @@
         }
       }
     },
+    "Approval required in System Settings" : {
+
+    },
     "Audio Bridge Error" : {
       "comment" : "Error banner title",
       "extractionState" : "manual",
@@ -486,6 +489,9 @@
           }
         }
       }
+    },
+    "Closing the window keeps Interceptor active in the Menu Bar." : {
+
     },
     "Core Audio SubTap Drift Compensation bridges clock domains automatically without adding your source interface to an aggregate device." : {
       "comment" : "Monitor Destination section footer",
@@ -1125,6 +1131,15 @@
           }
         }
       }
+    },
+    "Open Interceptor at login" : {
+
+    },
+    "Open Interceptor settings (⌘,)" : {
+
+    },
+    "Open Login Items…" : {
+
     },
     "Open Privacy Settings…" : {
       "comment" : "Button opening macOS Privacy settings",
