@@ -119,6 +119,7 @@ public final class RouteMeterModel {
 public final class AppViewModel {
     private enum DefaultsKey {
         static let autoReconnect = "com.interceptor.pref.autoReconnect"
+        static let restoreActiveBridgesOnLaunch = "com.interceptor.pref.restoreActiveBridgesOnLaunch"
         static let preferredBufferFrames = "com.interceptor.pref.preferredBufferFrames"
         static let driftBufferProfile = "com.interceptor.pref.driftBufferProfile"
     }
@@ -143,6 +144,12 @@ public final class AppViewModel {
         didSet {
             defaults.set(autoReconnectEnabled, forKey: DefaultsKey.autoReconnect)
             engine.autoReconnectEnabled = autoReconnectEnabled
+        }
+    }
+
+    public var restoreActiveBridgesOnLaunch: Bool {
+        didSet {
+            defaults.set(restoreActiveBridgesOnLaunch, forKey: DefaultsKey.restoreActiveBridgesOnLaunch)
         }
     }
 
@@ -196,17 +203,20 @@ public final class AppViewModel {
 
         defaults.register(defaults: [
             DefaultsKey.autoReconnect: true,
+            DefaultsKey.restoreActiveBridgesOnLaunch: true,
             DefaultsKey.preferredBufferFrames: 0,
             DefaultsKey.driftBufferProfile: DriftBufferProfile.balanced.rawValue
         ])
 
         let savedAutoReconnect = defaults.bool(forKey: DefaultsKey.autoReconnect)
+        let savedRestoreActive = defaults.bool(forKey: DefaultsKey.restoreActiveBridgesOnLaunch)
         let savedBuffer = defaults.integer(forKey: DefaultsKey.preferredBufferFrames)
         let savedProfile = DriftBufferProfile(
             rawValue: defaults.string(forKey: DefaultsKey.driftBufferProfile) ?? ""
         ) ?? .balanced
 
         self.autoReconnectEnabled = savedAutoReconnect
+        self.restoreActiveBridgesOnLaunch = savedRestoreActive
         self.preferredBufferFramesSetting = savedBuffer
         self.driftBufferProfile = savedProfile
 
@@ -216,6 +226,13 @@ public final class AppViewModel {
 
         self.selectedBridgeID = engine.bridges.first?.id
         refreshLaunchAtLoginStatus()
+
+        let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+        if savedRestoreActive && !isPreview {
+            Task { @MainActor [weak self] in
+                self?.engine.restoreActiveBridges()
+            }
+        }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))

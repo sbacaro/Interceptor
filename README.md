@@ -56,6 +56,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'platform=macOS' -derivedDataPath /tmp/InterceptorDerivedData
 
 # Build Release Universal app outside the repository
+# (If building on a Mac without the "Interceptor Code Signing" certificate, add CODE_SIGN_IDENTITY="-")
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild build -project Interceptor.xcodeproj -scheme Interceptor \
   -configuration Release -destination 'platform=macOS' \

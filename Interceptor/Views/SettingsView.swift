@@ -41,6 +41,8 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    Toggle("Restore active bridges on launch", isOn: $viewModel.restoreActiveBridgesOnLaunch)
+
                     Toggle("Automatically reconnect interfaces after disconnect", isOn: $viewModel.autoReconnectEnabled)
                 }
 
@@ -104,7 +106,7 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 480, height: 495)
+        .frame(width: 480, height: 525)
         .onAppear {
             viewModel.refreshLaunchAtLoginStatus()
         }

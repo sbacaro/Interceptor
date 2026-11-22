@@ -22,7 +22,8 @@ struct BridgeStoreTests {
             routes: [
                 ChannelRoute(label: "Monitor L", sourceChannel: 63, destinationChannel: 1),
                 ChannelRoute(label: "Monitor R", sourceChannel: 64, destinationChannel: 2)
-            ]
+            ],
+            wasActive: true
         )
 
         let bridgeB = AudioBridgeConfiguration(
@@ -45,8 +46,45 @@ struct BridgeStoreTests {
         #expect(loaded[0].name == "Studio Monitors")
         #expect(loaded[0].routes[0].sourceChannel == 63)
         #expect(loaded[0].processTarget == .application(bundleID: "com.avid.ProTools", displayName: "Pro Tools"))
+        #expect(loaded[0].wasActive == true)
         #expect(loaded[1].name == "Headphones")
         #expect(loaded[1].routes[1].isEnabled == false)
+        #expect(loaded[1].wasActive == false)
+    }
+
+    @Test("Decodes legacy bridge JSON missing wasActive without backing up as corrupt")
+    func decodesLegacyBridgeWithoutWasActive() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let storeURL = tempDir.appendingPathComponent("bridges.json")
+        let legacyJSON = """
+        [
+          {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Legacy Bridge",
+            "sourceDeviceUID": "src-uid",
+            "sourceDeviceName": "Source",
+            "destinationDeviceUID": "dst-uid",
+            "destinationDeviceName": "Monitor",
+            "processTarget": { "allProcesses": {} },
+            "routes": []
+          }
+        ]
+        """
+        try Data(legacyJSON.utf8).write(to: storeURL)
+
+        let store = BridgeStore(fileURL: storeURL)
+        let loaded = store.loadBridges()
+
+        #expect(loaded.count == 1)
+        #expect(loaded[0].name == "Legacy Bridge")
+        #expect(loaded[0].wasActive == false)
+
+        let contents = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        let backups = contents.filter { $0.hasPrefix("bridges.corrupt-") }
+        #expect(backups.isEmpty)
     }
 
     @Test("Backs up corrupt JSON instead of silently discarding user bridge configuration")

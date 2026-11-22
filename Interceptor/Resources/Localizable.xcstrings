@@ -1540,6 +1540,18 @@
         }
       }
     },
+    "Restore active bridges on launch" : {
+      "comment" : "Settings toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore active bridges on launch"
+          }
+        }
+      }
+    },
     "Retry" : {
       "comment" : "Banner retry button",
       "extractionState" : "manual",

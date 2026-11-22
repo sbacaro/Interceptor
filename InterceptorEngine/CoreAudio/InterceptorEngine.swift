@@ -318,15 +318,19 @@ public final class InterceptorEngine {
         refreshDevices()
 
         guard let source = sourceDevice(for: config) else {
+            setPersistedActiveState(true, forBridgeID: id)
             var t = telemetry(for: id)
             t.state = .waitingForDevice(role: .source, deviceName: config.sourceDeviceName ?? "Source Interface")
             telemetryByBridgeID[id] = t
+            syncLatencyCriticalActivity()
             return
         }
         guard let destination = destinationDevice(for: config) else {
+            setPersistedActiveState(true, forBridgeID: id)
             var t = telemetry(for: id)
             t.state = .waitingForDevice(role: .destination, deviceName: config.destinationDeviceName ?? "Monitor Interface")
             telemetryByBridgeID[id] = t
+            syncLatencyCriticalActivity()
             return
         }
 
@@ -358,6 +362,7 @@ public final class InterceptorEngine {
             )
 
             runtime.activeTappedStreams = info.tappedStreamIndices
+            setPersistedActiveState(true, forBridgeID: id)
             telemetryByBridgeID[id] = EngineTelemetry(
                 state: .running,
                 sourceSampleRate: info.sourceSampleRate,
@@ -391,15 +396,8 @@ public final class InterceptorEngine {
     }
 
     public func stopBridge(id: UUID) {
-        if let runtime = runtimes[id] {
-            runtime.desiredActive = false
-            runtime.pendingRebuildTask?.cancel()
-            runtime.pendingRebuildTask = nil
-            runtime.tapBridge.stop()
-            runtime.activeTappedStreams = []
-        }
-
-        telemetryByBridgeID[id] = makeIdleTelemetry(for: bridge(for: id))
+        teardownBridge(id: id)
+        setPersistedActiveState(false, forBridgeID: id)
         syncLatencyCriticalActivity()
     }
 
@@ -414,6 +412,22 @@ public final class InterceptorEngine {
     public func stopAll() {
         for bridge in bridges {
             stopBridge(id: bridge.id)
+        }
+    }
+
+    /// Restores any virtual bridges that were active before the previous app quit or update relaunch.
+    public func restoreActiveBridges() {
+        let activeIDs = bridges.filter(\.wasActive).map(\.id)
+        guard !activeIDs.isEmpty else { return }
+        for id in activeIDs where !isBridgeActiveOrPending(id) {
+            guard let config = bridge(for: id),
+                  config.sourceDeviceUID != nil,
+                  config.destinationDeviceUID != nil,
+                  config.routes.contains(where: \.isEnabled) else {
+                continue
+            }
+            logger.info("Restoring previously active bridge \(config.name).")
+            startBridge(id: id)
         }
     }
 
@@ -464,18 +478,40 @@ public final class InterceptorEngine {
         return snap
     }
 
-    /// Releases all Core Audio resources synchronously during app termination.
+    /// Releases all Core Audio resources synchronously during app termination or update relaunch,
+    /// preserving each bridge's persisted `wasActive` state so active bridges can be restored on next launch.
     public func shutdown() {
         pendingDeviceRefreshTask?.cancel()
         pendingDeviceRefreshTask = nil
         pendingProcessRefreshTask?.cancel()
         pendingProcessRefreshTask = nil
         catalog.stopObserving()
-        stopAll()
+        for bridge in bridges {
+            teardownBridge(id: bridge.id)
+        }
         syncLatencyCriticalActivity()
     }
 
     // MARK: - Internal Coordination
+
+    private func teardownBridge(id: UUID) {
+        if let runtime = runtimes[id] {
+            runtime.desiredActive = false
+            runtime.pendingRebuildTask?.cancel()
+            runtime.pendingRebuildTask = nil
+            runtime.tapBridge.stop()
+            runtime.activeTappedStreams = []
+        }
+
+        telemetryByBridgeID[id] = makeIdleTelemetry(for: bridge(for: id))
+    }
+
+    private func setPersistedActiveState(_ isActive: Bool, forBridgeID id: UUID) {
+        guard let idx = bridges.firstIndex(where: { $0.id == id }),
+              bridges[idx].wasActive != isActive else { return }
+        bridges[idx].wasActive = isActive
+        persistBridges()
+    }
 
     /// Keeps macOS from applying App Nap, timer coalescing, or Efficiency-core throttling
     /// while Interceptor is running active audio bridges (especially when hidden in the Menu Bar).
