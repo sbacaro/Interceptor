@@ -116,6 +116,10 @@ struct MainWindowView: View {
         )
         .onAppear {
             appDelegate.openMainWindowAction = { openWindow(id: "main") }
+            viewModel.setMainWindowVisible(true)
+        }
+        .onDisappear {
+            viewModel.setMainWindowVisible(false)
         }
         .sheet(isPresented: $viewModel.isSettingsPresented) {
             SettingsView(viewModel: viewModel)
@@ -167,20 +171,23 @@ private struct MainWindowRegistrationView: NSViewRepresentable {
 
     func updateNSView(_ nsView: WindowObserverNSView, context: Context) {
         nsView.onWindowAvailable = onWindowAvailable
-        if let window = nsView.window {
-            onWindowAvailable(window)
-        }
+        nsView.notifyIfWindowChanged()
     }
 }
 
 private final class WindowObserverNSView: NSView {
     var onWindowAvailable: (@MainActor (NSWindow) -> Void)?
+    private weak var lastRegisteredWindow: NSWindow?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let window {
-            onWindowAvailable?(window)
-        }
+        notifyIfWindowChanged()
+    }
+
+    func notifyIfWindowChanged() {
+        guard let window, lastRegisteredWindow !== window else { return }
+        lastRegisteredWindow = window
+        onWindowAvailable?(window)
     }
 }
 

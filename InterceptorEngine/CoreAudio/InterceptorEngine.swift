@@ -380,6 +380,16 @@ public final class InterceptorEngine {
         runtimes[id]?.tapBridge.activeInfo?.logicalSourceToTapChannel[sourceChannel]
     }
 
+    /// Zero-allocation single-channel meter read for a running bridge's 1-based logical source channel.
+    public func consumeSourceChannelLevel(sourceChannel: Int, inBridgeID id: UUID) -> ChannelMeterLevel {
+        guard let runtime = runtimes[id],
+              let info = runtime.tapBridge.activeInfo,
+              let tapIdx = info.logicalSourceToTapChannel[sourceChannel] else {
+            return .silent
+        }
+        return runtime.tapBridge.processor.meterBank.consumeInputLevel(channel: tapIdx)
+    }
+
     /// Consumes per-channel input activity snapshot for a running bridge (for subtle live indicators).
     public func consumeActivitySnapshot(forBridgeID id: UUID) -> MeterFrameSnapshot {
         guard let runtime = runtimes[id], let info = runtime.tapBridge.activeInfo else {

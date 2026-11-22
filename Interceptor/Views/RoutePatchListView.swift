@@ -55,7 +55,7 @@ struct RoutePatchListView: View {
                                 route: route,
                                 maxSourceChannels: maxSrc,
                                 maxDestinationChannels: maxDst,
-                                meter: viewModel.meter(for: route, inBridgeID: bridge.id),
+                                meterModel: viewModel.meterModel(for: route.id),
                                 validationIssues: issuesByID[route.id] ?? [],
                                 onUpdate: { viewModel.updateRouteInSelectedBridge($0) },
                                 onRemove: { viewModel.removeRouteFromSelectedBridge(routeID: route.id) }

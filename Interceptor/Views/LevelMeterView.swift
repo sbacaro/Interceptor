@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Leaf view that observes ONLY its single `RouteMeterModel`, isolating 30 Hz VU redraws
+/// from `RouteRowView` and its 64-item channel `Picker`s.
+struct LiveChannelVUMeterView: View {
+    let meterModel: RouteMeterModel
+
+    var body: some View {
+        ChannelVUMeterView(meter: meterModel.level)
+    }
+}
+
 /// High-precision horizontal dBFS VU meter bar rendered via SwiftUI `Canvas`
 /// with RMS fill, translucent peak envelope, peak-hold hairline, and studio dB graduation ticks.
 /// Used directly inside each mono channel row (zero `GeometryReader` layout cycles).
@@ -9,6 +19,13 @@ struct ChannelVUMeterView: View {
     private static let minDB: Float = -60.0
     private static let maxDB: Float = 0.0
     private static let tickDBs: [Float] = [-48, -36, -24, -12, -6, -3]
+    private static let meterGradient = Gradient(stops: [
+        .init(color: Color("MeterNominal"), location: 0.0),
+        .init(color: Color("MeterNominal"), location: 0.72),
+        .init(color: Color("MeterCaution"), location: 0.86),
+        .init(color: Color("MeterPeak"), location: 0.96),
+        .init(color: Color("MeterPeak"), location: 1.0)
+    ])
 
     var body: some View {
         HStack(spacing: 8) {
@@ -23,15 +40,8 @@ struct ChannelVUMeterView: View {
                 let peakFraction = normalizedPosition(forDB: meter.peakDB)
                 let holdFraction = normalizedPosition(forDB: meter.peakHoldDB)
 
-                let meterGradient = Gradient(stops: [
-                    .init(color: Color("MeterNominal"), location: 0.0),
-                    .init(color: Color("MeterNominal"), location: 0.72),
-                    .init(color: Color("MeterCaution"), location: 0.86),
-                    .init(color: Color("MeterPeak"), location: 0.96),
-                    .init(color: Color("MeterPeak"), location: 1.0)
-                ])
                 let linearShading = GraphicsContext.Shading.linearGradient(
-                    meterGradient,
+                    Self.meterGradient,
                     startPoint: CGPoint(x: 0, y: size.height * 0.5),
                     endPoint: CGPoint(x: size.width, y: size.height * 0.5)
                 )

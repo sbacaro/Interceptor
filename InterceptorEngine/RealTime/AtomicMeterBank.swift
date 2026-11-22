@@ -127,6 +127,22 @@ public final class AtomicMeterBank: @unchecked Sendable {
         xruns.wrappingAdd(1, ordering: .relaxed)
     }
 
+    /// UI thread: consumes accumulated peak and latest RMS for a single 0-based input channel (zero allocations).
+    public func consumeInputLevel(channel: Int) -> ChannelMeterLevel {
+        guard channel >= 0, channel < Self.maxChannels else { return .silent }
+        let peakBits = inputPeaks.advanced(by: channel).pointee.exchange(0, ordering: .relaxed)
+        let rmsBits = inputRMS.advanced(by: channel).pointee.load(ordering: .relaxed)
+        let clipped = inputClips.advanced(by: channel).pointee.load(ordering: .relaxed) != 0
+        if peakBits == 0 && rmsBits == 0 && !clipped {
+            return .silent
+        }
+        return ChannelMeterLevel(
+            peakLinear: Float(bitPattern: peakBits),
+            rmsLinear: Float(bitPattern: rmsBits),
+            isClipped: clipped
+        )
+    }
+
     /// UI thread: consumes accumulated peaks since the previous UI poll without losing transients.
     public func consumeSnapshot(inputChannelCount: Int, outputChannelCount: Int) -> MeterFrameSnapshot {
         let inCount = max(0, min(Self.maxChannels, inputChannelCount))

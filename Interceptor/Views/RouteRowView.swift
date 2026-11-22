@@ -7,7 +7,7 @@ struct RouteRowView: View {
     let route: ChannelRoute
     let maxSourceChannels: Int
     let maxDestinationChannels: Int
-    let meter: SmoothedChannelMeter
+    let meterModel: RouteMeterModel
     let validationIssues: [RouteValidationIssue]
     let onUpdate: (ChannelRoute) -> Void
     let onRemove: () -> Void
@@ -47,7 +47,7 @@ struct RouteRowView: View {
                     )
                 }
 
-                ChannelVUMeterView(meter: meter)
+                LiveChannelVUMeterView(meterModel: meterModel)
 
                 Button(role: .destructive, action: onRemove) {
                     Image(systemName: "minus.circle.fill")
@@ -186,7 +186,7 @@ struct RouteRowView: View {
             route: ChannelRoute(label: "Channel 1", sourceChannel: 63, destinationChannel: 1),
             maxSourceChannels: 64,
             maxDestinationChannels: 8,
-            meter: SmoothedChannelMeter(rmsDB: -18.0, peakDB: -11.4, peakHoldDB: -7.0, peakHoldTimestamp: 0, isClipped: false),
+            meterModel: RouteMeterModel(level: SmoothedChannelMeter(rmsDB: -18.0, peakDB: -11.4, peakHoldDB: -7.0, peakHoldTimestamp: 0, isClipped: false)),
             validationIssues: [],
             onUpdate: { _ in },
             onRemove: {}
@@ -196,7 +196,7 @@ struct RouteRowView: View {
             route: ChannelRoute(label: "Channel 2", sourceChannel: 64, destinationChannel: 2),
             maxSourceChannels: 64,
             maxDestinationChannels: 8,
-            meter: SmoothedChannelMeter(rmsDB: -21.0, peakDB: -14.2, peakHoldDB: -9.5, peakHoldTimestamp: 0, isClipped: false),
+            meterModel: RouteMeterModel(level: SmoothedChannelMeter(rmsDB: -21.0, peakDB: -14.2, peakHoldDB: -9.5, peakHoldTimestamp: 0, isClipped: false)),
             validationIssues: [],
             onUpdate: { _ in },
             onRemove: {}

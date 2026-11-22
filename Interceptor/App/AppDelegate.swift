@@ -14,24 +14,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var openMainWindowAction: (() -> Void)?
 
     private weak var mainWindow: NSWindow?
-    private var mainWindowCloseObserver: NSObjectProtocol?
+    private var mainWindowObservers: [NSObjectProtocol] = []
+    private var mainMenuObserver: NSObjectProtocol?
 
     private static let prunedMenuTitles: Set<String> = ["Edit", "Format", "View"]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         pruneUnusedTopLevelMenus()
+        installMainMenuObserver()
         DispatchQueue.main.async { [weak self] in
             self?.pruneUnusedTopLevelMenus()
+            self?.installMainMenuObserver()
         }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         pruneUnusedTopLevelMenus()
         viewModel?.refreshLaunchAtLoginStatus()
-    }
-
-    func applicationDidUpdate(_ notification: Notification) {
-        pruneUnusedTopLevelMenus()
+        syncMainWindowVisibility()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -46,38 +46,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let observer = mainWindowCloseObserver {
+        removeMainWindowObservers()
+        if let observer = mainMenuObserver {
             NotificationCenter.default.removeObserver(observer)
-            mainWindowCloseObserver = nil
+            mainMenuObserver = nil
         }
         viewModel?.shutdown()
     }
 
     // MARK: - Window & Dock Visibility
 
-    /// Registers the primary SwiftUI window so we observe ONLY its close event (ignoring MenuBarExtra panels).
+    /// Registers the primary SwiftUI window so we observe ONLY its lifecycle events
+    /// (close, miniaturize, occlusion) and completely suspend UI meter polling when hidden.
     func registerMainWindow(_ window: NSWindow) {
         if mainWindow !== window {
-            if let observer = mainWindowCloseObserver {
-                NotificationCenter.default.removeObserver(observer)
-                mainWindowCloseObserver = nil
-            }
+            removeMainWindowObservers()
             mainWindow = window
-            mainWindowCloseObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.handleMainWindowWillClose()
+
+            let nc = NotificationCenter.default
+            mainWindowObservers = [
+                nc.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.handleMainWindowWillClose()
+                    }
+                },
+                nc.addObserver(forName: NSWindow.willMiniaturizeNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.viewModel?.setMainWindowVisible(false)
+                    }
+                },
+                nc.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.syncMainWindowVisibility()
+                    }
+                },
+                nc.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.syncMainWindowVisibility()
+                    }
                 }
-            }
+            ]
         }
 
         if NSApp.activationPolicy() != .regular {
             NSApp.setActivationPolicy(.regular)
             pruneUnusedTopLevelMenus()
         }
+        syncMainWindowVisibility()
     }
 
     /// Restores Dock presence, opens or focuses the main window, and optionally presents the Settings sheet.
@@ -99,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.activate(ignoringOtherApps: true)
         pruneUnusedTopLevelMenus()
+        viewModel?.setMainWindowVisible(true)
 
         if openSettings {
             viewModel?.isSettingsPresented = true
@@ -112,13 +128,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.makeKeyAndOrderFront(nil)
             }
             NSApp.activate(ignoringOtherApps: true)
+            self.syncMainWindowVisibility()
             if openSettings {
                 self.viewModel?.isSettingsPresented = true
             }
         }
     }
 
+    private func syncMainWindowVisibility() {
+        guard let window = mainWindow else {
+            viewModel?.setMainWindowVisible(false)
+            return
+        }
+        let visibleOnScreen = window.isVisible &&
+            !window.isMiniaturized &&
+            window.occlusionState.contains(.visible)
+        viewModel?.setMainWindowVisible(visibleOnScreen)
+    }
+
     private func handleMainWindowWillClose() {
+        viewModel?.setMainWindowVisible(false)
         viewModel?.isSettingsPresented = false
         viewModel?.isBridgeInfoPresented = false
 
@@ -129,6 +158,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let mainVisible = self.mainWindow?.isVisible == true
             if !mainVisible && NSApp.activationPolicy() != .accessory {
                 NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
+
+    private func removeMainWindowObservers() {
+        let nc = NotificationCenter.default
+        for observer in mainWindowObservers {
+            nc.removeObserver(observer)
+        }
+        mainWindowObservers.removeAll()
+    }
+
+    private func installMainMenuObserver() {
+        guard mainMenuObserver == nil, let mainMenu = NSApp.mainMenu else { return }
+        mainMenuObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didAddItemNotification,
+            object: mainMenu,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pruneUnusedTopLevelMenus()
             }
         }
     }

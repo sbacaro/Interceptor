@@ -14,6 +14,20 @@ public struct SmoothedChannelMeter: Sendable, Equatable {
 
     public static let floorDB: Float = -60.0
 
+    public init(
+        rmsDB: Float = -60.0,
+        peakDB: Float = -60.0,
+        peakHoldDB: Float = -60.0,
+        peakHoldTimestamp: TimeInterval = 0,
+        isClipped: Bool = false
+    ) {
+        self.rmsDB = rmsDB
+        self.peakDB = peakDB
+        self.peakHoldDB = peakHoldDB
+        self.peakHoldTimestamp = peakHoldTimestamp
+        self.isClipped = isClipped
+    }
+
     public mutating func update(
         with raw: ChannelMeterLevel,
         now: TimeInterval,
@@ -22,17 +36,20 @@ public struct SmoothedChannelMeter: Sendable, Equatable {
         let clampedPeak = max(Self.floorDB, min(0.0, raw.peakDB))
         let clampedRMS = max(Self.floorDB, min(0.0, raw.rmsDB))
 
-        let decay = deltaTime * 24.0
+        // Gentle exponential smoothing so low-FPS visual meters move fluidly without flickering.
+        let attackAlpha = min(1.0, deltaTime * 14.0)
+        let releaseDecay = deltaTime * 22.0
+
         if clampedPeak >= peakDB {
-            peakDB = clampedPeak
+            peakDB = peakDB + (clampedPeak - peakDB) * attackAlpha
         } else {
-            peakDB = max(Self.floorDB, peakDB - decay)
+            peakDB = max(Self.floorDB, peakDB - releaseDecay)
         }
 
         if clampedRMS >= rmsDB {
-            rmsDB = clampedRMS
+            rmsDB = rmsDB + (clampedRMS - rmsDB) * attackAlpha
         } else {
-            rmsDB = max(Self.floorDB, rmsDB - decay * 0.85)
+            rmsDB = max(Self.floorDB, rmsDB - releaseDecay * 0.85)
         }
 
         if clampedPeak >= peakHoldDB || (now - peakHoldTimestamp) > 1.5 {
@@ -53,6 +70,32 @@ public struct SmoothedChannelMeter: Sendable, Equatable {
         rmsDB = max(Self.floorDB, rmsDB - decay)
         peakHoldDB = max(Self.floorDB, peakHoldDB - decay)
         isClipped = false
+    }
+
+    public var isSilent: Bool {
+        peakDB <= Self.floorDB + 0.05 &&
+            rmsDB <= Self.floorDB + 0.05 &&
+            peakHoldDB <= Self.floorDB + 0.05 &&
+            !isClipped
+    }
+
+    public func isVisiblyDifferent(from other: SmoothedChannelMeter) -> Bool {
+        abs(peakDB - other.peakDB) > 0.3 ||
+            abs(rmsDB - other.rmsDB) > 0.3 ||
+            abs(peakHoldDB - other.peakHoldDB) > 0.3 ||
+            isClipped != other.isClipped
+    }
+}
+
+/// Isolated per-route observable meter holder so ONLY the tiny leaf `LiveChannelVUMeterView`
+/// re-renders at 30 Hz — never `RoutePatchListView`, `RouteRowView`, or its 64-item channel `Picker`s.
+@MainActor
+@Observable
+public final class RouteMeterModel {
+    public var level: SmoothedChannelMeter
+
+    public init(level: SmoothedChannelMeter = SmoothedChannelMeter()) {
+        self.level = level
     }
 }
 
@@ -108,10 +151,16 @@ public final class AppViewModel {
     /// Optional non-fatal message if login item registration could not be updated.
     public private(set) var launchAtLoginErrorMessage: String?
 
-    // MARK: - Live Per-Channel Meters (60 Hz)
+    // MARK: - Live Per-Channel Meters (Isolated 30 Hz, Visible Window Only)
 
-    public private(set) var metersByBridgeID: [UUID: [SmoothedChannelMeter]] = [:]
+    /// Stored outside `@Observable` tracking so meter ticks never invalidate list/row/picker views.
+    @ObservationIgnored
+    private var routeMeterModels: [UUID: RouteMeterModel] = [:]
 
+    @ObservationIgnored
+    private var isMainWindowVisible: Bool = false
+
+    @ObservationIgnored
     private var meterTask: Task<Void, Never>?
 
     public init(
@@ -139,7 +188,6 @@ public final class AppViewModel {
 
         self.selectedBridgeID = engine.bridges.first?.id
         refreshLaunchAtLoginStatus()
-        startMeterLoop()
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
@@ -176,8 +224,12 @@ public final class AppViewModel {
 
     public func removeBridge(id: UUID) {
         let previousIndex = engine.bridges.firstIndex(where: { $0.id == id })
+        if let removed = engine.bridge(for: id) {
+            for route in removed.routes {
+                routeMeterModels.removeValue(forKey: route.id)
+            }
+        }
         engine.removeBridge(id: id)
-        metersByBridgeID.removeValue(forKey: id)
         if selectedBridgeID == id {
             if let idx = previousIndex, !engine.bridges.isEmpty {
                 selectedBridgeID = engine.bridges[min(idx, engine.bridges.count - 1)].id
@@ -308,79 +360,106 @@ public final class AppViewModel {
     }
 
     public func removeRouteFromSelectedBridge(routeID: UUID) {
+        routeMeterModels.removeValue(forKey: routeID)
         updateSelectedBridge { config in
             config.routes.removeAll { $0.id == routeID }
         }
     }
 
-    // MARK: - Metering Lookup
+    // MARK: - Isolated Metering Lookup & Visibility Lifecycle
 
-    public func meter(for route: ChannelRoute, inBridgeID bridgeID: UUID) -> SmoothedChannelMeter {
-        guard engine.isBridgeRunning(bridgeID), route.isEnabled,
-              let bank = metersByBridgeID[bridgeID] else {
-            return SmoothedChannelMeter()
+    /// Returns a stable per-route observable meter holder without creating an `@Observable` dependency on `AppViewModel`.
+    public func meterModel(for routeID: UUID) -> RouteMeterModel {
+        if let existing = routeMeterModels[routeID] {
+            return existing
         }
-        let idx = engine.tapChannelIndex(forSourceChannel: route.sourceChannel, inBridgeID: bridgeID)
-            ?? (route.sourceChannel - 1)
-        guard idx >= 0 && idx < bank.count else {
-            return SmoothedChannelMeter()
+        let created = RouteMeterModel()
+        routeMeterModels[routeID] = created
+        return created
+    }
+
+    /// Starts or completely suspends UI meter polling based on whether the main window is actually visible on screen.
+    public func setMainWindowVisible(_ visible: Bool) {
+        guard isMainWindowVisible != visible else { return }
+        isMainWindowVisible = visible
+        if visible {
+            startMeterLoop()
+        } else {
+            stopMeterLoop()
         }
-        return bank[idx]
     }
 
     public func shutdown() {
-        meterTask?.cancel()
-        meterTask = nil
+        stopMeterLoop()
         engine.shutdown()
     }
 
-    private func startMeterLoop() {
+    private func stopMeterLoop() {
         meterTask?.cancel()
+        meterTask = nil
+    }
+
+    private func startMeterLoop() {
+        guard isMainWindowVisible, meterTask == nil else { return }
         meterTask = Task { @MainActor [weak self] in
             var lastTick = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
-                guard let self else { break }
+                guard let self, self.isMainWindowVisible else { break }
                 let now = ProcessInfo.processInfo.systemUptime
-                let dt = Float(max(0.008, min(0.1, now - lastTick)))
+                let dt = Float(max(0.016, min(0.1, now - lastTick)))
                 lastTick = now
 
-                var anyRunning = false
+                var isActiveMetering = false
                 var anyDecaying = false
 
-                for bridge in self.engine.bridges {
-                    if self.engine.isBridgeRunning(bridge.id) {
-                        anyRunning = true
-                        let snapshot = self.engine.consumeActivitySnapshot(forBridgeID: bridge.id)
-                        var bank = self.metersByBridgeID[bridge.id] ?? []
-                        let targetCount = max(2, snapshot.inputLevels.count)
-                        if bank.count < targetCount {
-                            bank.append(contentsOf: repeatElement(SmoothedChannelMeter(), count: targetCount - bank.count))
-                        }
-                        for i in snapshot.inputLevels.indices where i < bank.count {
-                            bank[i].update(with: snapshot.inputLevels[i], now: now, deltaTime: dt)
-                        }
-                        self.metersByBridgeID[bridge.id] = bank
-                    } else if var bank = self.metersByBridgeID[bridge.id] {
-                        var stillActive = false
-                        for i in bank.indices {
-                            if bank[i].peakHoldDB > SmoothedChannelMeter.floorDB + 0.1 {
-                                bank[i].decayToSilence(deltaTime: dt)
-                                stillActive = true
+                if let bridge = self.selectedBridge {
+                    let isRunning = self.engine.isBridgeRunning(bridge.id)
+                    if isRunning {
+                        isActiveMetering = true
+                        var cachedRawLevels: [Int: ChannelMeterLevel] = [:]
+                        cachedRawLevels.reserveCapacity(bridge.routes.count)
+
+                        for route in bridge.routes {
+                            guard let model = self.routeMeterModels[route.id] else { continue }
+                            var next = model.level
+
+                            if route.isEnabled {
+                                let raw: ChannelMeterLevel
+                                if let existing = cachedRawLevels[route.sourceChannel] {
+                                    raw = existing
+                                } else {
+                                    raw = self.engine.consumeSourceChannelLevel(
+                                        sourceChannel: route.sourceChannel,
+                                        inBridgeID: bridge.id
+                                    )
+                                    cachedRawLevels[route.sourceChannel] = raw
+                                }
+                                next.update(with: raw, now: now, deltaTime: dt)
+                            } else if !next.isSilent {
+                                next.decayToSilence(deltaTime: dt)
+                            }
+
+                            if next.isVisiblyDifferent(from: model.level) {
+                                model.level = next
                             }
                         }
-                        if stillActive {
-                            anyDecaying = true
-                            self.metersByBridgeID[bridge.id] = bank
-                        } else {
-                            self.metersByBridgeID.removeValue(forKey: bridge.id)
+                    } else {
+                        for route in bridge.routes {
+                            guard let model = self.routeMeterModels[route.id], !model.level.isSilent else { continue }
+                            var next = model.level
+                            next.decayToSilence(deltaTime: dt)
+                            model.level = next
+                            if !next.isSilent {
+                                anyDecaying = true
+                            }
                         }
                     }
                 }
 
-                if anyRunning {
-                    try? await Task.sleep(for: .milliseconds(16))
+                if isActiveMetering || anyDecaying {
+                    try? await Task.sleep(for: .milliseconds(66))
                 } else {
-                    try? await Task.sleep(for: .milliseconds(anyDecaying ? 33 : 200))
+                    try? await Task.sleep(for: .milliseconds(300))
                 }
             }
         }
