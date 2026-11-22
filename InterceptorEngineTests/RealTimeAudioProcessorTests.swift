@@ -958,4 +958,81 @@ struct RealTimeAudioProcessorTests {
             Issue.record("Expected ring buffer to remain ready on second read")
         }
     }
+
+    @Test("Ring-buffer underflow increments underrunCount and overflow increments overrunCount")
+    func tracksRingBufferUnderflowAndOverflowSeparately() {
+        let frames = 256
+        let routes = [ChannelRoute(sourceChannel: 1, destinationChannel: 1)]
+
+        let processor = RealTimeAudioProcessor(
+            initialSnapshot: RTRoutingSnapshot.build(routes: routes),
+            inputLayout: .interleaved(channelCount: 2),
+            outputLayout: .interleaved(channelCount: 2)
+        )
+        processor.ringBuffer.configure(
+            sourceSampleRate: 48_000,
+            destinationSampleRate: 48_000,
+            sourceBufferFrames: frames,
+            destinationBufferFrames: frames,
+            profile: .balanced
+        )
+
+        var inSamples = [Float](repeating: 0.25, count: 2 * frames)
+        var outSamples = [Float](repeating: 0.0, count: 2 * frames)
+
+        func pushInput(_ blocks: Int) {
+            inSamples.withUnsafeMutableBufferPointer { inPtr in
+                var inABL = AudioBufferList(
+                    mNumberBuffers: 1,
+                    mBuffers: AudioBuffer(
+                        mNumberChannels: 2,
+                        mDataByteSize: UInt32(inPtr.count * MemoryLayout<Float>.size),
+                        mData: UnsafeMutableRawPointer(inPtr.baseAddress!)
+                    )
+                )
+                withUnsafePointer(to: &inABL) { inABLPtr in
+                    for _ in 0..<blocks {
+                        processor.processTapInput(inInputData: inABLPtr, frameCount: frames)
+                    }
+                }
+            }
+        }
+
+        func pullOutput(_ blocks: Int) {
+            outSamples.withUnsafeMutableBufferPointer { outPtr in
+                var outABL = AudioBufferList(
+                    mNumberBuffers: 1,
+                    mBuffers: AudioBuffer(
+                        mNumberChannels: 2,
+                        mDataByteSize: UInt32(outPtr.count * MemoryLayout<Float>.size),
+                        mData: UnsafeMutableRawPointer(outPtr.baseAddress!)
+                    )
+                )
+                withUnsafeMutablePointer(to: &outABL) { outABLPtr in
+                    for _ in 0..<blocks {
+                        processor.processMonitorOutput(outOutputData: outABLPtr, frameCount: frames)
+                    }
+                }
+            }
+        }
+
+        // Prime (3 * 256 = 768 >= 640 targetFillFrames), then drain until underflow.
+        pushInput(3)
+        pullOutput(3)
+
+        #expect(processor.meterBank.underrunCount == 1)
+        #expect(processor.meterBank.overrunCount == 0)
+        #expect(processor.meterBank.xrunCount == 1)
+
+        // Re-prime, then push past capacityFrames - 512 without draining to trigger overflow.
+        pushInput(3)
+        pullOutput(1)
+        let overflowBlocks = (LockFreeAudioRingBuffer.capacityFrames / frames) + 1
+        pushInput(overflowBlocks)
+        pullOutput(1)
+
+        #expect(processor.meterBank.underrunCount == 1)
+        #expect(processor.meterBank.overrunCount == 1)
+        #expect(processor.meterBank.xrunCount == 2)
+    }
 }

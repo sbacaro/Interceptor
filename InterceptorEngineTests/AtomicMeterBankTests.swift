@@ -83,4 +83,22 @@ struct AtomicMeterBankTests {
         #expect(ch1 == .silent)
         #expect(ch2 == .silent)
     }
+
+    @Test("Tracks underruns and overruns separately while summing total XRuns and resetting cleanly")
+    func tracksUnderrunsAndOverrunsSeparatelyAndResets() {
+        let bank = AtomicMeterBank()
+
+        bank.recordUnderrun()
+        bank.recordUnderrun()
+        bank.recordOverrun()
+
+        #expect(bank.underrunCount == 2)
+        #expect(bank.overrunCount == 1)
+        #expect(bank.xrunCount == 3)
+
+        bank.resetAll()
+        #expect(bank.underrunCount == 0)
+        #expect(bank.overrunCount == 0)
+        #expect(bank.xrunCount == 0)
+    }
 }

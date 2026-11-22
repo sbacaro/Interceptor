@@ -61,6 +61,8 @@ public final class AtomicMeterBank: @unchecked Sendable {
     private let outputClips: UnsafeMutablePointer<Atomic<UInt8>>
 
     private let xruns: Atomic<UInt64>
+    private let underruns: Atomic<UInt64>
+    private let overruns: Atomic<UInt64>
 
     public init() {
         let count = Self.maxChannels
@@ -80,6 +82,8 @@ public final class AtomicMeterBank: @unchecked Sendable {
             outputClips.advanced(by: i).initialize(to: Atomic<UInt8>(0))
         }
         xruns = Atomic<UInt64>(0)
+        underruns = Atomic<UInt64>(0)
+        overruns = Atomic<UInt64>(0)
     }
 
     deinit {
@@ -129,9 +133,33 @@ public final class AtomicMeterBank: @unchecked Sendable {
         xruns.wrappingAdd(1, ordering: .relaxed)
     }
 
+    /// Real-time audio thread: increments both the underrun counter and total XRun counter.
+    @inline(__always)
+    public func recordUnderrun() {
+        underruns.wrappingAdd(1, ordering: .relaxed)
+        xruns.wrappingAdd(1, ordering: .relaxed)
+    }
+
+    /// Real-time audio thread: increments both the overrun counter and total XRun counter.
+    @inline(__always)
+    public func recordOverrun() {
+        overruns.wrappingAdd(1, ordering: .relaxed)
+        xruns.wrappingAdd(1, ordering: .relaxed)
+    }
+
     /// Current cumulative dropout / XRun count (non-destructive read).
     public var xrunCount: UInt64 {
         xruns.load(ordering: .relaxed)
+    }
+
+    /// Current cumulative buffer underrun count (non-destructive read).
+    public var underrunCount: UInt64 {
+        underruns.load(ordering: .relaxed)
+    }
+
+    /// Current cumulative buffer overrun count (non-destructive read).
+    public var overrunCount: UInt64 {
+        overruns.load(ordering: .relaxed)
     }
 
     /// UI thread: consumes accumulated peak and latest RMS for a single 0-based input channel (zero allocations).
@@ -211,6 +239,8 @@ public final class AtomicMeterBank: @unchecked Sendable {
             outputClips.advanced(by: i).pointee.store(0, ordering: .relaxed)
         }
         xruns.store(0, ordering: .relaxed)
+        underruns.store(0, ordering: .relaxed)
+        overruns.store(0, ordering: .relaxed)
     }
 
     @inline(__always)

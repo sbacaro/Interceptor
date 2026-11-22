@@ -322,13 +322,13 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         switch ringBuffer.beginRead(outputFrameCount: frameCount) {
         case let .notReady(xrun):
             if xrun {
-                meterBank.recordXRun()
+                meterBank.recordUnderrun()
             }
             return
 
         case let .ready(plan, xrun):
             if xrun {
-                meterBank.recordXRun()
+                meterBank.recordOverrun()
             }
 
             let snapshotPtr = routingBuffer.readLatestPointer()
