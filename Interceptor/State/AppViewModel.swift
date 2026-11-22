@@ -120,6 +120,7 @@ public final class AppViewModel {
     private enum DefaultsKey {
         static let autoReconnect = "com.interceptor.pref.autoReconnect"
         static let preferredBufferFrames = "com.interceptor.pref.preferredBufferFrames"
+        static let driftBufferProfile = "com.interceptor.pref.driftBufferProfile"
     }
 
     private let defaults: UserDefaults
@@ -150,6 +151,14 @@ public final class AppViewModel {
         didSet {
             defaults.set(preferredBufferFramesSetting, forKey: DefaultsKey.preferredBufferFrames)
             engine.preferredBufferFrames = preferredBufferFramesSetting > 0 ? preferredBufferFramesSetting : nil
+        }
+    }
+
+    /// Safety headroom profile for the decoupled drift-compensating ring buffer.
+    public var driftBufferProfile: DriftBufferProfile {
+        didSet {
+            defaults.set(driftBufferProfile.rawValue, forKey: DefaultsKey.driftBufferProfile)
+            engine.driftBufferProfile = driftBufferProfile
         }
     }
 
@@ -187,17 +196,23 @@ public final class AppViewModel {
 
         defaults.register(defaults: [
             DefaultsKey.autoReconnect: true,
-            DefaultsKey.preferredBufferFrames: 0
+            DefaultsKey.preferredBufferFrames: 0,
+            DefaultsKey.driftBufferProfile: DriftBufferProfile.balanced.rawValue
         ])
 
         let savedAutoReconnect = defaults.bool(forKey: DefaultsKey.autoReconnect)
         let savedBuffer = defaults.integer(forKey: DefaultsKey.preferredBufferFrames)
+        let savedProfile = DriftBufferProfile(
+            rawValue: defaults.string(forKey: DefaultsKey.driftBufferProfile) ?? ""
+        ) ?? .balanced
 
         self.autoReconnectEnabled = savedAutoReconnect
         self.preferredBufferFramesSetting = savedBuffer
+        self.driftBufferProfile = savedProfile
 
         engine.autoReconnectEnabled = savedAutoReconnect
         engine.preferredBufferFrames = savedBuffer > 0 ? savedBuffer : nil
+        engine.driftBufferProfile = savedProfile
 
         self.selectedBridgeID = engine.bridges.first?.id
         refreshLaunchAtLoginStatus()

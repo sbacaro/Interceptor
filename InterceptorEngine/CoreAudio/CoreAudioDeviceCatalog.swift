@@ -297,14 +297,16 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
         return proc.id == kAudioObjectUnknown ? nil : proc.id
     }
 
-    /// Starts listening for Core Audio hardware topology, process list, and daemon restart events.
+    /// Starts listening for Core Audio hardware device changes, process list changes, and daemon restarts.
     public func startObserving(
-        onTopologyChange: @escaping @Sendable () -> Void,
+        onDeviceListChanged: @escaping @Sendable () -> Void,
+        onProcessListChanged: @escaping @Sendable () -> Void,
         onServiceRestarted: @escaping @Sendable () -> Void
     ) {
         guard !isObserving else { return }
         let proxy = SystemPropertyListenerProxy(
-            onTopologyChange: onTopologyChange,
+            onDeviceListChanged: onDeviceListChanged,
+            onProcessListChanged: onProcessListChanged,
             onServiceRestarted: onServiceRestarted
         )
         self.listenerProxy = proxy
@@ -342,27 +344,33 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
 }
 
 private final class SystemPropertyListenerProxy: PropertyListenerDelegate, @unchecked Sendable {
-    private let onTopologyChange: @Sendable () -> Void
+    private let onDeviceListChanged: @Sendable () -> Void
+    private let onProcessListChanged: @Sendable () -> Void
     private let onServiceRestarted: @Sendable () -> Void
 
     init(
-        onTopologyChange: @escaping @Sendable () -> Void,
+        onDeviceListChanged: @escaping @Sendable () -> Void,
+        onProcessListChanged: @escaping @Sendable () -> Void,
         onServiceRestarted: @escaping @Sendable () -> Void
     ) {
-        self.onTopologyChange = onTopologyChange
+        self.onDeviceListChanged = onDeviceListChanged
+        self.onProcessListChanged = onProcessListChanged
         self.onServiceRestarted = onServiceRestarted
     }
 
     func propertiesChanged(properties: [AudioObjectPropertyAddress]) {
-        var topologyChanged = false
+        var devicesChanged = false
+        var processesChanged = false
         var restarted = false
 
         for prop in properties {
             switch prop.mSelector {
             case kAudioHardwarePropertyServiceRestarted:
                 restarted = true
-            case kAudioHardwarePropertyDevices, kAudioHardwarePropertyProcessObjectList:
-                topologyChanged = true
+            case kAudioHardwarePropertyDevices:
+                devicesChanged = true
+            case kAudioHardwarePropertyProcessObjectList:
+                processesChanged = true
             default:
                 break
             }
@@ -370,8 +378,13 @@ private final class SystemPropertyListenerProxy: PropertyListenerDelegate, @unch
 
         if restarted {
             onServiceRestarted()
-        } else if topologyChanged {
-            onTopologyChange()
+        } else {
+            if devicesChanged {
+                onDeviceListChanged()
+            }
+            if processesChanged {
+                onProcessListChanged()
+            }
         }
     }
 }

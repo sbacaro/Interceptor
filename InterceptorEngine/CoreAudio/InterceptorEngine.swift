@@ -35,7 +35,7 @@ public final class InterceptorEngine {
     /// Automatic reconnection when a disconnected interface returns.
     public var autoReconnectEnabled: Bool = true
 
-    /// Global optional preferred buffer frames for private monitor aggregates (`nil` = automatic).
+    /// Global optional preferred buffer frames for direct monitor outputs (`nil` = automatic).
     public var preferredBufferFrames: Int? {
         didSet {
             guard preferredBufferFrames != oldValue else { return }
@@ -45,7 +45,23 @@ public final class InterceptorEngine {
         }
     }
 
+    /// Global safety headroom profile for the decoupled drift-compensating ring buffer.
+    public var driftBufferProfile: DriftBufferProfile = .balanced {
+        didSet {
+            guard driftBufferProfile != oldValue else { return }
+            for bridge in bridges where isBridgeRunning(bridge.id) {
+                restartBridge(id: bridge.id)
+            }
+        }
+    }
+
     private var runtimes: [UUID: BridgeRuntime] = [:]
+
+    /// Prevents macOS App Nap, timer coalescing, and E-core throttling while any bridge is active.
+    private var latencyActivityToken: NSObjectProtocol?
+
+    private var pendingDeviceRefreshTask: Task<Void, Never>?
+    private var pendingProcessRefreshTask: Task<Void, Never>?
 
     public init(
         catalog: CoreAudioDeviceCatalog = CoreAudioDeviceCatalog(),
@@ -58,9 +74,14 @@ public final class InterceptorEngine {
         loadOrCreateInitialBridges()
 
         catalog.startObserving(
-            onTopologyChange: { [weak self] in
+            onDeviceListChanged: { [weak self] in
                 Task { @MainActor [weak self] in
-                    self?.handleTopologyChange()
+                    self?.scheduleDebouncedDeviceTopologyChange()
+                }
+            },
+            onProcessListChanged: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.scheduleDebouncedProcessRefresh()
                 }
             },
             onServiceRestarted: { [weak self] in
@@ -128,6 +149,14 @@ public final class InterceptorEngine {
     }
 
     // MARK: - Device Catalog
+
+    /// Refreshes only the list of Core Audio client applications without re-enumerating hardware devices.
+    public func refreshProcesses() {
+        let updated = catalog.fetchAudioProcesses()
+        if updated != availableProcesses {
+            availableProcesses = updated
+        }
+    }
 
     public func refreshDevices() {
         availableDevices = catalog.fetchOutputDevices()
@@ -314,6 +343,7 @@ public final class InterceptorEngine {
                 processTarget: config.processTarget,
                 routes: config.routes,
                 preferredBufferFrames: preferredBufferFrames,
+                driftBufferProfile: driftBufferProfile,
                 selfProcessObjectID: selfProcessID,
                 onDeviceInvalidated: { [weak self] role in
                     Task { @MainActor [weak self] in
@@ -342,17 +372,20 @@ public final class InterceptorEngine {
                 activeRouteCount: config.routes.filter(\.isEnabled).count,
                 activeOutputChannelCount: info.destinationOutputChannels
             )
+            syncLatencyCriticalActivity()
         } catch AudioTapBridgeError.permissionDenied {
             runtime.desiredActive = false
             var t = telemetry(for: id)
             t.state = .permissionRequired
             telemetryByBridgeID[id] = t
+            syncLatencyCriticalActivity()
             logger.error("System Audio Recording permission denied for bridge \(config.name).")
         } catch {
             runtime.desiredActive = false
             var t = telemetry(for: id)
             t.state = .error(error.localizedDescription)
             telemetryByBridgeID[id] = t
+            syncLatencyCriticalActivity()
             logger.error("Failed to start bridge \(config.name): \(error.localizedDescription)")
         }
     }
@@ -367,6 +400,7 @@ public final class InterceptorEngine {
         }
 
         telemetryByBridgeID[id] = makeIdleTelemetry(for: bridge(for: id))
+        syncLatencyCriticalActivity()
     }
 
     public func toggleBridge(id: UUID) {
@@ -432,11 +466,51 @@ public final class InterceptorEngine {
 
     /// Releases all Core Audio resources synchronously during app termination.
     public func shutdown() {
+        pendingDeviceRefreshTask?.cancel()
+        pendingDeviceRefreshTask = nil
+        pendingProcessRefreshTask?.cancel()
+        pendingProcessRefreshTask = nil
         catalog.stopObserving()
         stopAll()
+        syncLatencyCriticalActivity()
     }
 
     // MARK: - Internal Coordination
+
+    /// Keeps macOS from applying App Nap, timer coalescing, or Efficiency-core throttling
+    /// while Interceptor is running active audio bridges (especially when hidden in the Menu Bar).
+    private func syncLatencyCriticalActivity() {
+        let shouldHoldAssertion = anyBridgeActiveOrPending
+        if shouldHoldAssertion && latencyActivityToken == nil {
+            latencyActivityToken = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .latencyCritical, .idleSystemSleepDisabled],
+                reason: "Active real-time Core Audio passive monitoring bridge"
+            )
+            logger.info("Acquired latency-critical ProcessInfo activity assertion.")
+        } else if !shouldHoldAssertion, let token = latencyActivityToken {
+            ProcessInfo.processInfo.endActivity(token)
+            latencyActivityToken = nil
+            logger.info("Released latency-critical ProcessInfo activity assertion.")
+        }
+    }
+
+    private func scheduleDebouncedDeviceTopologyChange() {
+        pendingDeviceRefreshTask?.cancel()
+        pendingDeviceRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self else { return }
+            self.handleTopologyChange()
+        }
+    }
+
+    private func scheduleDebouncedProcessRefresh() {
+        pendingProcessRefreshTask?.cancel()
+        pendingProcessRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.refreshProcesses()
+        }
+    }
 
     private func makeIdleTelemetry(for config: AudioBridgeConfiguration?) -> EngineTelemetry {
         let src = config.flatMap { sourceDevice(for: $0) }

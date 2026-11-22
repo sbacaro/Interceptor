@@ -22,13 +22,11 @@ public final class AudioTapBridge: @unchecked Sendable {
     private let deviceListenerQueue = DispatchQueue(label: "com.interceptor.audio.bridge-listeners", qos: .userInitiated)
 
     public let processor: RealTimeAudioProcessor
+    private let tapHub: SharedSourceTapHub
 
-    private var activeTaps: [AudioHardwareTap] = []
-    private var aggregateDevice: AudioHardwareAggregateDevice?
-    private var tapInputIOProcID: AudioDeviceIOProcID?
+    private var tapLease: SharedSourceTapHub.Lease?
     private var monitorOutputDeviceID: AudioObjectID?
     private var monitorOutputIOProcID: AudioDeviceIOProcID?
-    private var isTapStarted = false
     private var isMonitorStarted = false
 
     private var monitoredSourceDevice: AudioHardwareDevice?
@@ -37,17 +35,21 @@ public final class AudioTapBridge: @unchecked Sendable {
 
     public private(set) var activeInfo: ActiveBridgeInfo?
 
-    public init(processor: RealTimeAudioProcessor = RealTimeAudioProcessor()) {
+    public init(
+        processor: RealTimeAudioProcessor = RealTimeAudioProcessor(),
+        tapHub: SharedSourceTapHub = .shared
+    ) {
         self.processor = processor
+        self.tapHub = tapHub
     }
 
     deinit {
         stop()
     }
 
-    /// Creates passive non-exclusive Core Audio tap(s) on `sourceDevice`, binds them with
-    /// native `coreaudiod` SubTap Drift Compensation to `destinationDevice` inside a private
-    /// aggregate device, and starts the real-time zero-allocation IOProc.
+    /// Attaches to a shared passive Core Audio tap on `sourceDevice` (zero unused-channel ASRC)
+    /// and starts a direct native Core Audio output IOProc on `destinationDevice`, isolating
+    /// clocks via `LockFreeAudioRingBuffer`.
     @discardableResult
     public func start(
         sourceDevice: AudioDeviceDescriptor,
@@ -55,6 +57,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         processTarget: ProcessTarget,
         routes: [ChannelRoute],
         preferredBufferFrames: Int?,
+        driftBufferProfile: DriftBufferProfile = .balanced,
         selfProcessObjectID: AudioObjectID?,
         onDeviceInvalidated: @escaping @Sendable (_ role: DeviceRole) -> Void,
         onFormatChanged: @escaping @Sendable () -> Void
@@ -73,125 +76,20 @@ public final class AudioTapBridge: @unchecked Sendable {
             throw AudioTapBridgeError.noOutputStreams(sourceDevice.name)
         }
 
-        // 1. Determine which output stream indices on the source interface need to be tapped.
-        let requestedSourceChannels = routes
-            .filter(\.isEnabled)
-            .map(\.sourceChannel)
-        let streamIndices = sourceDevice.requiredStreamIndices(forLogicalChannels: requestedSourceChannels)
-
-        // 2. Create passive, unmuted, private Core Audio Tap(s) for each required output stream.
-        var createdTaps: [AudioHardwareTap] = []
-        var tapDicts: [[String: Any]] = []
-        var tapStreamMeta: [(streamIndex: Int, fallbackChannels: Int)] = []
-
-        do {
-            for streamIndex in streamIndices {
-                let tapDescription = makeTapDescription(
-                    sourceUID: sourceDevice.uid,
-                    streamIndex: streamIndex,
-                    processTarget: processTarget,
-                    selfProcessObjectID: selfProcessObjectID
-                )
-
-                guard let tap = try system.makeProcessTap(description: tapDescription) else {
-                    throw AudioTapBridgeError.tapCreationFailed(kAudioHardwareUnspecifiedError)
-                }
-                createdTaps.append(tap)
-
-                let tapUID = try tap.uid
-                let tapFormat = try? tap.format
-                let fallbackChannels: Int = {
-                    if let fmtCh = tapFormat?.mChannelsPerFrame, fmtCh > 0 {
-                        return Int(fmtCh)
-                    }
-                    return sourceDevice.outputStreams.first(where: { $0.streamIndex == streamIndex })?.channelCount ?? 2
-                }()
-                tapStreamMeta.append((streamIndex: streamIndex, fallbackChannels: fallbackChannels))
-
-                // Tap-Only capture with Core Audio SubTap drift compensation DISABLED so Core Audio
-                // never wastes CPU resampling 64+ unused hardware channels. Drift compensation & SRC
-                // run exclusively on the active routed mono channels inside `LockFreeAudioRingBuffer`.
-                let subTapDict: [String: Any] = [
-                    kAudioSubTapUIDKey: tapUID,
-                    kAudioSubTapDriftCompensationKey: false
-                ]
-                tapDicts.append(subTapDict)
-            }
-        } catch let hwErr as AudioHardwareError {
-            cleanupPartial(taps: createdTaps, aggregate: nil)
-            if AudioCapturePermission.isPermissionError(hwErr.error) {
-                throw AudioTapBridgeError.permissionDenied(hwErr.error)
-            }
-            throw AudioTapBridgeError.tapCreationFailed(hwErr.error)
-        } catch {
-            cleanupPartial(taps: createdTaps, aggregate: nil)
-            throw error
-        }
-
-        // 3. Create a Tap-Only private Aggregate Device (zero subdevices, zero unused-channel ASRC).
-        //    The source interface clock stays 100% isolated, and no monitor mic/line inputs enter the tap.
-        let aggregateUID = CoreAudioDeviceCatalog.privateAggregateUIDPrefix + UUID().uuidString
-        let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceNameKey: "Interceptor Private Tap Capture",
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceTapAutoStartKey: false,
-            kAudioAggregateDeviceTapListKey: tapDicts
-        ]
-
-        let aggregate: AudioHardwareAggregateDevice
-        do {
-            guard let createdAggregate = try system.makeAggregateDevice(description: aggregateDescription) else {
-                cleanupPartial(taps: createdTaps, aggregate: nil)
-                throw AudioTapBridgeError.aggregateCreationFailed(kAudioHardwareUnspecifiedError)
-            }
-            aggregate = createdAggregate
-        } catch let hwErr as AudioHardwareError {
-            cleanupPartial(taps: createdTaps, aggregate: nil)
-            throw AudioTapBridgeError.aggregateCreationFailed(hwErr.error)
-        } catch {
-            cleanupPartial(taps: createdTaps, aggregate: nil)
-            throw error
-        }
-
-        // 4. Optional preferred buffer size on the monitor destination (never touches source interface).
+        // 1. Optional preferred buffer size on the monitor destination (never touches source interface).
         if let preferredFrames = preferredBufferFrames, preferredFrames >= 32, coreDest.id != coreSource.id {
             try? coreDest.setBufferFrameSize(preferredFrames)
         }
 
-        // 5. Inspect actual tap input layout and direct monitor output layout.
-        let inputConfig = (try? aggregate.inputStreamConfiguration) ?? []
+        // 2. Inspect direct monitor output layout before acquiring the shared tap.
         let outputConfig = (try? coreDest.outputStreamConfiguration) ?? []
-        let inputLayout = RTBufferLayoutMap(streamConfiguration: inputConfig)
         let outputLayout = RTBufferLayoutMap(streamConfiguration: outputConfig)
-
-        guard inputLayout.channelCount > 0, outputLayout.channelCount > 0 else {
-            cleanupPartial(taps: createdTaps, aggregate: aggregate)
+        guard outputLayout.channelCount > 0 else {
             throw AudioTapBridgeError.emptyAggregateStreams
         }
 
-        // Map each source logical channel onto its exact zero-based channel inside `inputLayout`
-        // using the realized aggregate `inputStreamConfiguration`.
-        var logicalToTapChannel: [Int: Int] = [:]
-        var tapChannelCursor = 0
-        let useActualInputConfig = inputConfig.count == tapStreamMeta.count
-        for (idx, meta) in tapStreamMeta.enumerated() {
-            let actualStreamChannels = useActualInputConfig
-                ? Int(inputConfig[idx].mNumberChannels)
-                : meta.fallbackChannels
-            if let streamDesc = sourceDevice.outputStreams.first(where: { $0.streamIndex == meta.streamIndex }) {
-                let mappedCount = min(actualStreamChannels, streamDesc.channelCount)
-                for localIdx in 0..<mappedCount {
-                    logicalToTapChannel[streamDesc.startingChannel + localIdx] = tapChannelCursor + localIdx
-                }
-            }
-            tapChannelCursor += actualStreamChannels
-        }
-
         let coreSourceRate = (try? coreSource.nominalSampleRate) ?? sourceDevice.nominalSampleRate
-        let actualSourceRate = (try? aggregate.nominalSampleRate) ?? coreSourceRate
         let actualDestRate = (try? coreDest.nominalSampleRate) ?? destinationDevice.nominalSampleRate
-        let actualTapFrames = (try? aggregate.bufferFrameSize) ?? sourceDevice.bufferFrameSize
         let actualSourceFrames = (try? coreSource.bufferFrameSize) ?? sourceDevice.bufferFrameSize
         let actualDestFrames = (try? coreDest.bufferFrameSize) ?? destinationDevice.bufferFrameSize
         let sourceStreamSignature = ((try? coreSource.outputStreamConfiguration) ?? []).map(\.mNumberChannels)
@@ -199,45 +97,51 @@ public final class AudioTapBridge: @unchecked Sendable {
         let destOutputLatency = (try? coreDest.outputLatency) ?? destinationDevice.outputLatencyFrames
         let destSafetyOffset = (try? coreDest.outputSafetyOffset) ?? 0
 
-        // 6. Configure lock-free ring buffer (active-channel-only drift compensation) and DSP layouts BEFORE start.
-        let initialSnapshot = RTRoutingSnapshot.build(
-            routes: routes,
-            sourceLogicalToTapChannel: { logicalToTapChannel[$0] }
-        )
-        processor.resetRuntimeState()
-        processor.ringBuffer.configure(
-            sourceSampleRate: actualSourceRate,
-            destinationSampleRate: actualDestRate,
-            sourceBufferFrames: actualTapFrames,
-            destinationBufferFrames: actualDestFrames
-        )
-        processor.configure(
-            inputLayout: inputLayout,
-            outputLayout: outputLayout
-        )
-        processor.updateRouting(initialSnapshot)
+        // 3. Determine required output streams on the source interface and acquire a shared tap lease.
+        let requestedSourceChannels = routes
+            .filter(\.isEnabled)
+            .map(\.sourceChannel)
+        let streamIndices = sourceDevice.requiredStreamIndices(forLogicalChannels: requestedSourceChannels)
 
-        let ringLatencyMs = processor.ringBuffer.estimatedBufferLatencyMs(sourceSampleRate: actualSourceRate)
+        var initialSnapshot = RTRoutingSnapshot()
+        let lease = try tapHub.acquire(
+            sourceDevice: sourceDevice,
+            coreSource: coreSource,
+            streamIndices: streamIndices,
+            processTarget: processTarget,
+            selfProcessObjectID: selfProcessObjectID,
+            processor: processor
+        ) { metadata in
+            // Prepare ring buffer, layouts, pre-faulted/mlock'd slots, and routing BEFORE the
+            // shared tap IOProc ever dispatches a callback to `processor`.
+            initialSnapshot = RTRoutingSnapshot.build(
+                routes: routes,
+                sourceLogicalToTapChannel: { metadata.logicalSourceToTapChannel[$0] }
+            )
+            processor.resetRuntimeState()
+            processor.ringBuffer.configure(
+                sourceSampleRate: metadata.sourceSampleRate,
+                destinationSampleRate: actualDestRate,
+                sourceBufferFrames: metadata.tapBufferFrames,
+                destinationBufferFrames: actualDestFrames,
+                profile: driftBufferProfile
+            )
+            processor.configure(
+                inputLayout: metadata.inputLayout,
+                outputLayout: outputLayout
+            )
+            processor.updateRouting(initialSnapshot)
+        }
+
+        let meta = lease.metadata
+        let ringLatencyMs = processor.ringBuffer.estimatedBufferLatencyMs(sourceSampleRate: meta.sourceSampleRate)
         let destHardwareLatencyMs = actualDestRate > 0
             ? (Double(actualDestFrames + destOutputLatency + destSafetyOffset) / actualDestRate) * 1000.0
             : 0.0
         let latencyMs = ringLatencyMs + destHardwareLatencyMs
 
-        // 7. Register decoupled C-function IOProcs (Tap Input on private aggregate + Output directly on monitor).
+        // 4. Register direct monitor output IOProc (zero aggregate on monitor hardware).
         let clientData = Unmanaged.passUnretained(processor).toOpaque()
-
-        var createdTapIOProcID: AudioDeviceIOProcID?
-        let tapCreateStatus = AudioDeviceCreateIOProcID(
-            aggregate.id,
-            interceptorTapInputIOProc,
-            clientData,
-            &createdTapIOProcID
-        )
-        guard tapCreateStatus == noErr, let validTapIOProcID = createdTapIOProcID else {
-            cleanupPartial(taps: createdTaps, aggregate: aggregate)
-            throw AudioTapBridgeError.ioProcRegistrationFailed(tapCreateStatus)
-        }
-
         var createdOutIOProcID: AudioDeviceIOProcID?
         let outCreateStatus = AudioDeviceCreateIOProcID(
             coreDest.id,
@@ -246,8 +150,7 @@ public final class AudioTapBridge: @unchecked Sendable {
             &createdOutIOProcID
         )
         guard outCreateStatus == noErr, let validOutIOProcID = createdOutIOProcID else {
-            AudioDeviceDestroyIOProcID(aggregate.id, validTapIOProcID)
-            cleanupPartial(taps: createdTaps, aggregate: aggregate)
+            lease.release()
             throw AudioTapBridgeError.ioProcRegistrationFailed(outCreateStatus)
         }
 
@@ -257,29 +160,16 @@ public final class AudioTapBridge: @unchecked Sendable {
             disableAllInputStreams(deviceID: coreDest.id, ioProcID: validOutIOProcID, inputStreamCount: destInputStreamCount)
         }
 
-        let tapStartStatus = AudioDeviceStart(aggregate.id, validTapIOProcID)
-        guard tapStartStatus == noErr else {
-            AudioDeviceDestroyIOProcID(coreDest.id, validOutIOProcID)
-            AudioDeviceDestroyIOProcID(aggregate.id, validTapIOProcID)
-            cleanupPartial(taps: createdTaps, aggregate: aggregate)
-            throw AudioTapBridgeError.deviceStartFailed(tapStartStatus)
-        }
-
         let outStartStatus = AudioDeviceStart(coreDest.id, validOutIOProcID)
         guard outStartStatus == noErr else {
-            AudioDeviceStop(aggregate.id, validTapIOProcID)
             AudioDeviceDestroyIOProcID(coreDest.id, validOutIOProcID)
-            AudioDeviceDestroyIOProcID(aggregate.id, validTapIOProcID)
-            cleanupPartial(taps: createdTaps, aggregate: aggregate)
+            lease.release()
             throw AudioTapBridgeError.deviceStartFailed(outStartStatus)
         }
 
-        self.activeTaps = createdTaps
-        self.aggregateDevice = aggregate
-        self.tapInputIOProcID = validTapIOProcID
+        self.tapLease = lease
         self.monitorOutputDeviceID = coreDest.id
         self.monitorOutputIOProcID = validOutIOProcID
-        self.isTapStarted = true
         self.isMonitorStarted = true
 
         attachDeviceListeners(
@@ -292,25 +182,27 @@ public final class AudioTapBridge: @unchecked Sendable {
             expectedSourceStreamSignature: sourceStreamSignature,
             expectedDestStreamSignature: destStreamSignature,
             onDeviceInvalidated: onDeviceInvalidated,
-            onFormatChanged: onFormatChanged
+            onFormatChanged: { [tapHub, sourceUID = sourceDevice.uid] in
+                tapHub.invalidateSessions(forSourceUID: sourceUID)
+                onFormatChanged()
+            }
         )
 
         let info = ActiveBridgeInfo(
-            sourceSampleRate: actualSourceRate,
+            sourceSampleRate: meta.sourceSampleRate,
             destinationSampleRate: actualDestRate,
             bufferFrames: actualDestFrames,
             estimatedLatencyMs: latencyMs,
             tappedStreamIndices: streamIndices,
-            tappedInputChannels: inputLayout.channelCount,
+            tappedInputChannels: meta.inputLayout.channelCount,
             destinationOutputChannels: outputLayout.channelCount,
-            logicalSourceToTapChannel: logicalToTapChannel
+            logicalSourceToTapChannel: meta.logicalSourceToTapChannel
         )
         self.activeInfo = info
 
-        let aggInSummary = inputConfig.map { "\($0.mNumberChannels)ch" }.joined(separator: "+")
         let destOutSummary = outputConfig.map { "\($0.mNumberChannels)ch" }.joined(separator: "+")
         logger.info(
-            "Started decoupled passive bridge: \(sourceDevice.name) (\(actualSourceRate) Hz, tap=[\(aggInSummary)]) → \(destinationDevice.name) (\(actualDestRate) Hz, out=[\(destOutSummary)], \(actualDestFrames) fr, activeRoutes=\(initialSnapshot.patchCount))"
+            "Started decoupled passive bridge: \(sourceDevice.name) (\(meta.sourceSampleRate) Hz, sharedTap=[\(meta.inputConfigSummary)]) → \(destinationDevice.name) (\(actualDestRate) Hz, out=[\(destOutSummary)], \(actualDestFrames) fr, profile=\(driftBufferProfile.rawValue), activeRoutes=\(initialSnapshot.patchCount))"
         )
         return info
     }
@@ -325,7 +217,7 @@ public final class AudioTapBridge: @unchecked Sendable {
         processor.updateRouting(snapshot)
     }
 
-    /// Stops audio I/O and destroys the monitor IOProc, private tap aggregate, and Core Audio tap(s) in strict order.
+    /// Stops monitor output I/O and releases the shared tap lease in strict order.
     public func stop() {
         detachDeviceListeners()
 
@@ -342,27 +234,10 @@ public final class AudioTapBridge: @unchecked Sendable {
             }
         }
 
-        if let aggregate = aggregateDevice, let tapProcID = tapInputIOProcID {
-            if isTapStarted {
-                let stopStatus = AudioDeviceStop(aggregate.id, tapProcID)
-                if stopStatus != noErr {
-                    logger.warning("Tap AudioDeviceStop returned OSStatus \(stopStatus)")
-                }
-            }
-            let destroyStatus = AudioDeviceDestroyIOProcID(aggregate.id, tapProcID)
-            if destroyStatus != noErr {
-                logger.warning("Tap AudioDeviceDestroyIOProcID returned OSStatus \(destroyStatus)")
-            }
-        }
-
-        cleanupPartial(taps: activeTaps, aggregate: aggregateDevice)
-
-        activeTaps.removeAll()
-        aggregateDevice = nil
-        tapInputIOProcID = nil
+        tapLease?.release()
+        tapLease = nil
         monitorOutputDeviceID = nil
         monitorOutputIOProcID = nil
-        isTapStarted = false
         isMonitorStarted = false
         activeInfo = nil
         processor.resetRuntimeState()
@@ -413,51 +288,6 @@ public final class AudioTapBridge: @unchecked Sendable {
         )
         if status != noErr {
             logger.warning("kAudioDevicePropertyIOProcStreamUsage returned OSStatus \(status)")
-        }
-    }
-
-    private func makeTapDescription(
-        sourceUID: String,
-        streamIndex: Int,
-        processTarget: ProcessTarget,
-        selfProcessObjectID: AudioObjectID?
-    ) -> CATapDescription {
-        let description: CATapDescription
-
-        switch processTarget {
-        case .allProcesses:
-            let excluded: [AudioObjectID] = selfProcessObjectID.map { [$0] } ?? []
-            description = CATapDescription(
-                excludingProcesses: excluded,
-                deviceUID: sourceUID,
-                stream: UInt(streamIndex)
-            )
-            description.isExclusive = true
-            description.bundleIDs = [Bundle.main.bundleIdentifier ?? "com.interceptor.audio"]
-
-        case let .application(bundleID, _):
-            description = CATapDescription()
-            description.deviceUID = sourceUID
-            description.stream = UInt(streamIndex)
-            description.isExclusive = false
-            description.bundleIDs = [bundleID]
-            description.isProcessRestoreEnabled = true
-        }
-
-        // Critical invariant: ALWAYS passive, unmuted, private tap — never interrupts or mutes original audio.
-        description.muteBehavior = .unmuted
-        description.isPrivate = true
-        description.name = "Interceptor Passive Tap"
-        return description
-    }
-
-    private func cleanupPartial(taps: [AudioHardwareTap], aggregate: AudioHardwareAggregateDevice?) {
-        let system = AudioHardwareSystem.shared
-        if let aggregate {
-            try? system.destroyAggregateDevice(aggregate)
-        }
-        for tap in taps {
-            try? system.destroyProcessTap(tap)
         }
     }
 

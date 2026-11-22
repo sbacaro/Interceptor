@@ -795,4 +795,167 @@ struct RealTimeAudioProcessorTests {
         let decoupledLevel = decoupled.meterBank.consumeInputLevel(channel: 0)
         #expect(decoupledLevel == .silent)
     }
+
+    @Test("SharedTapConsumerDispatcher fans out one 64-ch source tap to multiple independent bridges with full isolation")
+    func sharedTapDispatcherFeedsMultipleBridgesIndependently() {
+        let frames = 256
+        let tapChannels = 64
+
+        let refRoutes = [
+            ChannelRoute(label: "Ref L", sourceChannel: 3, destinationChannel: 1),
+            ChannelRoute(label: "Ref R", sourceChannel: 4, destinationChannel: 2)
+        ]
+        let lfeRoutes = [
+            ChannelRoute(label: "LFE 1", sourceChannel: 5, destinationChannel: 1),
+            ChannelRoute(label: "LFE 2", sourceChannel: 6, destinationChannel: 2),
+            ChannelRoute(label: "LFE 3", sourceChannel: 7, destinationChannel: 3)
+        ]
+
+        let refProcessor = RealTimeAudioProcessor(
+            initialSnapshot: RTRoutingSnapshot.build(routes: refRoutes),
+            inputLayout: .interleaved(channelCount: tapChannels),
+            outputLayout: .interleaved(channelCount: 2)
+        )
+        let lfeProcessor = RealTimeAudioProcessor(
+            initialSnapshot: RTRoutingSnapshot.build(routes: lfeRoutes),
+            inputLayout: .interleaved(channelCount: tapChannels),
+            outputLayout: .interleaved(channelCount: 4)
+        )
+
+        refProcessor.ringBuffer.configure(
+            sourceSampleRate: 48_000,
+            destinationSampleRate: 48_000,
+            sourceBufferFrames: frames,
+            destinationBufferFrames: frames,
+            profile: .balanced
+        )
+        lfeProcessor.ringBuffer.configure(
+            sourceSampleRate: 48_000,
+            destinationSampleRate: 48_000,
+            sourceBufferFrames: frames,
+            destinationBufferFrames: frames,
+            profile: .liveSafe
+        )
+
+        let dispatcher = SharedTapConsumerDispatcher()
+        dispatcher.publish([refProcessor, lfeProcessor])
+
+        var inSamples = [Float](repeating: 0.0, count: tapChannels * frames)
+        for f in 0..<frames {
+            inSamples[f * tapChannels + 0] = 0.99  // Ch 1 (unrouted)
+            inSamples[f * tapChannels + 1] = -0.99 // Ch 2 (unrouted)
+            inSamples[f * tapChannels + 2] = 0.21  // Ch 3 -> Ref Out 1
+            inSamples[f * tapChannels + 3] = -0.34 // Ch 4 -> Ref Out 2
+            inSamples[f * tapChannels + 4] = 0.55  // Ch 5 -> LFE Out 1
+            inSamples[f * tapChannels + 5] = -0.66 // Ch 6 -> LFE Out 2
+            inSamples[f * tapChannels + 6] = 0.77  // Ch 7 -> LFE Out 3
+        }
+
+        // Prime both bridges simultaneously via ONE shared tap dispatch.
+        inSamples.withUnsafeMutableBufferPointer { inPtr in
+            var inABL = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: UInt32(tapChannels),
+                    mDataByteSize: UInt32(inPtr.count * MemoryLayout<Float>.size),
+                    mData: UnsafeMutableRawPointer(inPtr.baseAddress!)
+                )
+            )
+            withUnsafePointer(to: &inABL) { inABLPtr in
+                for _ in 0..<10 {
+                    dispatcher.dispatch(inInputData: inABLPtr, frameCount: frames)
+                }
+            }
+        }
+
+        var refOut = [Float](repeating: 99.0, count: 2 * frames)
+        refOut.withUnsafeMutableBufferPointer { ptr in
+            var abl = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: 2,
+                    mDataByteSize: UInt32(ptr.count * MemoryLayout<Float>.size),
+                    mData: UnsafeMutableRawPointer(ptr.baseAddress!)
+                )
+            )
+            withUnsafeMutablePointer(to: &abl) { ablPtr in
+                refProcessor.processMonitorOutput(outOutputData: ablPtr, frameCount: frames)
+                refProcessor.processMonitorOutput(outOutputData: ablPtr, frameCount: frames)
+            }
+        }
+
+        var lfeOut = [Float](repeating: 99.0, count: 4 * frames)
+        lfeOut.withUnsafeMutableBufferPointer { ptr in
+            var abl = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: 4,
+                    mDataByteSize: UInt32(ptr.count * MemoryLayout<Float>.size),
+                    mData: UnsafeMutableRawPointer(ptr.baseAddress!)
+                )
+            )
+            withUnsafeMutablePointer(to: &abl) { ablPtr in
+                lfeProcessor.processMonitorOutput(outOutputData: ablPtr, frameCount: frames)
+                lfeProcessor.processMonitorOutput(outOutputData: ablPtr, frameCount: frames)
+            }
+        }
+
+        for f in 0..<frames {
+            #expect(abs(refOut[f * 2 + 0] - 0.21) < 1e-4)
+            #expect(abs(refOut[f * 2 + 1] - (-0.34)) < 1e-4)
+            #expect(abs(lfeOut[f * 4 + 0] - 0.55) < 1e-4)
+            #expect(abs(lfeOut[f * 4 + 1] - (-0.66)) < 1e-4)
+            #expect(abs(lfeOut[f * 4 + 2] - 0.77) < 1e-4)
+            #expect(lfeOut[f * 4 + 3] == 0.0)
+        }
+        #expect(refProcessor.meterBank.xrunCount == 0)
+        #expect(lfeProcessor.meterBank.xrunCount == 0)
+    }
+
+    @Test("DriftBufferProfile scales headroom cleanly and keeps deadband 1:1 exact copy active")
+    func driftBufferProfilesAndDeadbandFastPath() {
+        let ring = LockFreeAudioRingBuffer()
+        ring.prefaultAndLockSlots([0, 1, 63, 127])
+
+        ring.configure(sourceSampleRate: 48_000, destinationSampleRate: 48_000, sourceBufferFrames: 512, destinationBufferFrames: 512, profile: .lowLatency)
+        let lowMs = ring.estimatedBufferLatencyMs(sourceSampleRate: 48_000)
+
+        ring.configure(sourceSampleRate: 48_000, destinationSampleRate: 48_000, sourceBufferFrames: 512, destinationBufferFrames: 512, profile: .balanced)
+        let balancedMs = ring.estimatedBufferLatencyMs(sourceSampleRate: 48_000)
+
+        ring.configure(sourceSampleRate: 48_000, destinationSampleRate: 48_000, sourceBufferFrames: 512, destinationBufferFrames: 512, profile: .liveSafe)
+        let safeMs = ring.estimatedBufferLatencyMs(sourceSampleRate: 48_000)
+
+        #expect(lowMs < balancedMs)
+        #expect(balancedMs < safeMs)
+
+        // Feed exact steady-state 48 kHz frames and verify 1:1 deadband exact-copy fast path engages after fade-in.
+        ring.configure(sourceSampleRate: 48_000, destinationSampleRate: 48_000, sourceBufferFrames: 256, destinationBufferFrames: 256, profile: .balanced)
+        var w: UInt64 = 0
+        for _ in 0..<8 {
+            w = ring.beginWrite(frameCount: 256)
+            ring.commitWrite(newWriteIndex: w &+ 256)
+        }
+
+        // First read primes + runs 64-frame fade-in; second read at exact targetFill should use 1:1 fast path!
+        let r1 = ring.beginRead(outputFrameCount: 256)
+        if case let .ready(plan1, _) = r1 {
+            ring.commitRead(plan: plan1)
+        } else {
+            Issue.record("Expected ring buffer to prime on first read")
+        }
+
+        w = ring.beginWrite(frameCount: 256)
+        ring.commitWrite(newWriteIndex: w &+ 256)
+
+        let r2 = ring.beginRead(outputFrameCount: 256)
+        if case let .ready(plan2, xrun) = r2 {
+            #expect(!xrun)
+            #expect(plan2.canUseExactCopy == true)
+            #expect(plan2.stepRatio == 1.0)
+            ring.commitRead(plan: plan2)
+        } else {
+            Issue.record("Expected ring buffer to remain ready on second read")
+        }
+    }
 }

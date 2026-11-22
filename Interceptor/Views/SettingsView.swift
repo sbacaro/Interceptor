@@ -52,6 +52,12 @@ struct SettingsView: View {
                         Text("256 frames").tag(256)
                         Text("512 frames").tag(512)
                     }
+
+                    Picker("Dropout Protection", selection: $viewModel.driftBufferProfile) {
+                        ForEach(DriftBufferProfile.allCases) { profile in
+                            Text(profile.displayName).tag(profile)
+                        }
+                    }
                 } header: {
                     Text("Private Monitor Bridge")
                 } footer: {
@@ -98,7 +104,7 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 480, height: 460)
+        .frame(width: 480, height: 495)
         .onAppear {
             viewModel.refreshLaunchAtLoginStatus()
         }

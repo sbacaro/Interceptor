@@ -121,8 +121,21 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         meterBank.resetAll()
     }
 
-    /// Publishes updated mono channel patches to both real-time threads without stopping audio.
+    /// Publishes updated mono channel patches to both real-time threads without stopping audio,
+    /// pre-faulting and pinning any newly active ring slots on the control thread first so the
+    /// Core Audio IOProc never incurs a kernel page fault.
     public func updateRouting(_ snapshot: RTRoutingSnapshot) {
+        if snapshot.patchCount > 0 {
+            var activeSlots: [Int] = []
+            activeSlots.reserveCapacity(snapshot.patchCount)
+            for p in 0..<snapshot.patchCount {
+                let patch = snapshot.patches[p]
+                if patch.isActive {
+                    activeSlots.append(Int(patch.sourceChannel))
+                }
+            }
+            ringBuffer.prefaultAndLockSlots(activeSlots)
+        }
         inputRoutingBuffer.write(snapshot)
         routingBuffer.write(snapshot)
     }
@@ -245,16 +258,36 @@ public final class RealTimeAudioProcessor: @unchecked Sendable {
         }
 
         let srcPtr = srcRaw.assumingMemoryBound(to: Float.self)
+        let slotPtr = ringBuffer.slotBasePointer(slot: srcChannel)
+        let capacity = LockFreeAudioRingBuffer.capacityFrames
+        let startIndex = Int(baseWriteFrame & UInt64(capacity - 1))
+        let firstChunk = min(frameCount, capacity - startIndex)
+        let secondChunk = frameCount - firstChunk
+
         var sIdx = srcOffset
         var peak: Float = 0.0
 
-        for f in 0..<frameCount {
+        // Contiguous ring segment 1 (zero per-sample ring wrap or slot offset multiplication).
+        let dstFirst = slotPtr.advanced(by: startIndex)
+        for f in 0..<firstChunk {
             let raw = srcPtr[sIdx]
             let sample: Float = raw.isFinite ? raw : 0.0
-            ringBuffer.storeSample(sample, slot: srcChannel, frame: baseWriteFrame &+ UInt64(f))
+            dstFirst[f] = sample
             let mag = fabsf(sample)
             if mag > peak { peak = mag }
             sIdx += srcStride
+        }
+
+        // Optional wrapped ring segment 2.
+        if secondChunk > 0 {
+            for f in 0..<secondChunk {
+                let raw = srcPtr[sIdx]
+                let sample: Float = raw.isFinite ? raw : 0.0
+                slotPtr[f] = sample
+                let mag = fabsf(sample)
+                if mag > peak { peak = mag }
+                sIdx += srcStride
+            }
         }
 
         if !wasActive {

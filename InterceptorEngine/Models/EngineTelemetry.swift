@@ -1,5 +1,25 @@
 import Foundation
 
+/// Configurable safety headroom for the decoupled drift-compensating audio ring buffer.
+public enum DriftBufferProfile: String, Codable, CaseIterable, Sendable, Identifiable {
+    case lowLatency
+    case balanced
+    case liveSafe
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .lowLatency:
+            String(localized: "Low Latency", bundle: .interceptorEngine)
+        case .balanced:
+            String(localized: "Balanced (Recommended)", bundle: .interceptorEngine)
+        case .liveSafe:
+            String(localized: "Live Safe (Extra Headroom)", bundle: .interceptorEngine)
+        }
+    }
+}
+
 /// Role of a device in the signal bridge.
 public enum DeviceRole: String, Codable, Sendable {
     case source

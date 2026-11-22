@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Synchronization
 
@@ -43,6 +44,11 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
     private let writeIndex = Atomic<UInt64>(0)
     private let readIndex = Atomic<UInt64>(0)
 
+    /// Tracks which planar slots have already been pre-faulted and `mlock`ed on the control thread.
+    private var prefaultedMaskLo: UInt64 = 0
+    private var prefaultedMaskHi: UInt64 = 0
+    private let prefaultLock = Mutex<Void>(())
+
     /// Consumer-only resampler & PI drift-tracking state (touched exclusively on the output audio thread).
     private var fractionalPhase: Double = 0.0
     private var baseRatio: Double = 1.0
@@ -66,9 +72,67 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
     }
 
     deinit {
+        unlockAllPrefaultedSlots()
         slotValidFromFrame.deinitialize(count: Self.maxChannels)
         slotValidFromFrame.deallocate()
         free(storage)
+    }
+
+    /// Pre-faults and `mlock`s physical RAM pages for the given channel slots on a non-real-time
+    /// control thread so the Core Audio IOProc never incurs kernel page faults or swap stalls
+    /// when a channel is activated live under heavy DAW memory pressure.
+    public func prefaultAndLockSlots<S: Sequence>(_ slots: S) where S.Element == Int {
+        prefaultLock.withLock { _ in
+            let slotByteSize = Self.capacityFrames * MemoryLayout<Float>.size
+            let pageSize = Int(getpagesize())
+            let floatsPerPage = max(1, pageSize / MemoryLayout<Float>.size)
+
+            for slot in slots where slot >= 0 && slot < Self.maxChannels {
+                let alreadyDone: Bool
+                if slot < 64 {
+                    alreadyDone = (prefaultedMaskLo & (UInt64(1) &<< slot)) != 0
+                } else {
+                    alreadyDone = (prefaultedMaskHi & (UInt64(1) &<< (slot - 64))) != 0
+                }
+                guard !alreadyDone else { continue }
+
+                let slotPtr = storage.advanced(by: slot * Self.capacityFrames)
+                // Touch one float per 4 KB/16 KB VM page to guarantee physical backing before RT use.
+                var offset = 0
+                while offset < Self.capacityFrames {
+                    slotPtr[offset] = 0.0
+                    offset += floatsPerPage
+                }
+                // Best-effort pin in RAM to prevent macOS paging under heavy Pro Tools / VI sessions.
+                _ = mlock(UnsafeRawPointer(slotPtr), slotByteSize)
+
+                if slot < 64 {
+                    prefaultedMaskLo |= (UInt64(1) &<< slot)
+                } else {
+                    prefaultedMaskHi |= (UInt64(1) &<< (slot - 64))
+                }
+            }
+        }
+    }
+
+    private func unlockAllPrefaultedSlots() {
+        let slotByteSize = Self.capacityFrames * MemoryLayout<Float>.size
+        var lo = prefaultedMaskLo
+        while lo != 0 {
+            let bit = lo.trailingZeroBitCount
+            lo &= lo &- 1
+            let slotPtr = storage.advanced(by: bit * Self.capacityFrames)
+            _ = munlock(UnsafeRawPointer(slotPtr), slotByteSize)
+        }
+        var hi = prefaultedMaskHi
+        while hi != 0 {
+            let bit = hi.trailingZeroBitCount
+            hi &= hi &- 1
+            let slotPtr = storage.advanced(by: (64 + bit) * Self.capacityFrames)
+            _ = munlock(UnsafeRawPointer(slotPtr), slotByteSize)
+        }
+        prefaultedMaskLo = 0
+        prefaultedMaskHi = 0
     }
 
     /// Configures nominal sample rates and target latency fill while audio I/O is stopped.
@@ -76,17 +140,25 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
         sourceSampleRate: Double,
         destinationSampleRate: Double,
         sourceBufferFrames: Int,
-        destinationBufferFrames: Int
+        destinationBufferFrames: Int,
+        profile: DriftBufferProfile = .balanced
     ) {
         let srcRate = sourceSampleRate > 0 ? sourceSampleRate : 48_000.0
         let dstRate = destinationSampleRate > 0 ? destinationSampleRate : 48_000.0
         baseRatio = srcRate / dstRate
 
-        // Keep enough safety headroom for jitter between independent hardware/software clocks
-        // while staying low-latency (~10–30 ms depending on host buffer size).
+        // Scale safety headroom according to selected dropout-protection profile.
         let maxBuf = max(64, max(sourceBufferFrames, destinationBufferFrames))
         let scaledBuf = Int(ceil(Double(maxBuf) * max(1.0, baseRatio)))
-        let desired = max(512, min(Self.capacityFrames / 2, scaledBuf * 2 + 128))
+        let desired: Int
+        switch profile {
+        case .lowLatency:
+            desired = max(384, min(Self.capacityFrames / 2, scaledBuf + 192))
+        case .balanced:
+            desired = max(512, min(Self.capacityFrames / 2, scaledBuf * 2 + 128))
+        case .liveSafe:
+            desired = max(1536, min(Self.capacityFrames / 2, scaledBuf * 3 + 512))
+        }
         targetFillFrames = Double(desired)
         reset()
     }
@@ -117,6 +189,13 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
     @inline(__always)
     public func beginWrite(frameCount: Int) -> UInt64 {
         writeIndex.load(ordering: .relaxed)
+    }
+
+    /// Returns the base pointer for planar slot `slot` (`capacityFrames` contiguous floats)
+    /// so the real-time producer can write contiguous wrapped segments without per-sample multiplication.
+    @inline(__always)
+    public func slotBasePointer(slot: Int) -> UnsafeMutablePointer<Float> {
+        storage.advanced(by: slot * Self.capacityFrames)
     }
 
     /// Writes a single sample into planar slot `slot` at monotonic frame `frame`.
@@ -209,12 +288,22 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
 
         // 4. Smooth PI controller adjusts resampling ratio by tiny inaudible ppm increments
         //    to keep ring fill locked to `targetFillFrames` across independent clock domains.
+        //    When nominal rates match and drift is inside a tight ±2-frame deadband, hold exact 1:1
+        //    unity copy so synced clocks stay bit-transparent at minimal CPU.
         let fillError = currentAvailable - targetFillFrames
         let kp = 0.0000035
         let ki = 0.00000004
-        integralError = max(-8000.0, min(8000.0, integralError + fillError))
-        let correction = max(-0.004, min(0.004, fillError * kp + integralError * ki))
-        let stepRatio = baseRatio * (1.0 + correction)
+        let isNominalUnity = abs(baseRatio - 1.0) < 1e-6
+
+        let stepRatio: Double
+        if isNominalUnity && abs(fillError) <= 2.0 && abs(integralError * ki) < 5e-7 {
+            integralError *= 0.98
+            stepRatio = 1.0
+        } else {
+            integralError = max(-8000.0, min(8000.0, integralError + fillError))
+            let correction = max(-0.004, min(0.004, fillError * kp + integralError * ki))
+            stepRatio = baseRatio * (1.0 + correction)
+        }
 
         let canUseExactCopy = abs(stepRatio - 1.0) < 1e-6 && fractionalPhase < 1e-5 && fadeInRemaining == 0
 
@@ -227,18 +316,11 @@ public final class LockFreeAudioRingBuffer: @unchecked Sendable {
             endFractionalPhase = fractionalPhase
             endFadeInRemaining = 0
         } else {
-            var intPos = rPos
-            var phase = fractionalPhase
-            for _ in 0..<outputFrameCount {
-                phase += stepRatio
-                let whole = UInt64(phase)
-                if whole > 0 {
-                    intPos &+= whole
-                    phase -= Double(whole)
-                }
-            }
-            endFrame = intPos
-            endFractionalPhase = phase
+            // O(1) exact frame & phase advancement (eliminates per-frame loop in beginRead).
+            let totalAdvance = fractionalPhase + Double(outputFrameCount) * stepRatio
+            let wholeAdvance = UInt64(totalAdvance)
+            endFrame = rPos &+ wholeAdvance
+            endFractionalPhase = totalAdvance - Double(wholeAdvance)
             endFadeInRemaining = max(0, fadeInRemaining - outputFrameCount)
         }
 

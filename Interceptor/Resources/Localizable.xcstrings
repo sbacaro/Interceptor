@@ -7,6 +7,9 @@
     "·" : {
 
     },
+    "%@ (Offline)" : {
+
+    },
     "%@ %lld" : {
       "localizations" : {
         "en" : {
@@ -36,6 +39,9 @@
           }
         }
       }
+    },
+    "%lld%%" : {
+
     },
     "64 frames" : {
 
@@ -271,6 +277,9 @@
         }
       }
     },
+    "Automatically check for updates" : {
+
+    },
     "Automatically reconnect interfaces after disconnect" : {
       "comment" : "Settings toggle",
       "extractionState" : "manual",
@@ -438,6 +447,15 @@
           }
         }
       }
+    },
+    "Check for Updates…" : {
+
+    },
+    "Check Now" : {
+
+    },
+    "Checking…" : {
+
     },
     "Clear Clip Indicators" : {
       "comment" : "Menu command to reset clip indicators",
@@ -619,6 +637,9 @@
         }
       }
     },
+    "Dismiss until next launch" : {
+
+    },
     "Done" : {
       "comment" : "Sheet dismiss button",
       "extractionState" : "manual",
@@ -630,6 +651,9 @@
           }
         }
       }
+    },
+    "Downloading update… %lld%%" : {
+
     },
     "Drift Comp." : {
       "comment" : "Inspector short label for drift compensation",
@@ -654,6 +678,9 @@
           }
         }
       }
+    },
+    "Dropout Protection" : {
+
     },
     "Duplicate" : {
       "comment" : "Preset context menu action",
@@ -769,6 +796,15 @@
         }
       }
     },
+    "Install Update" : {
+
+    },
+    "Install v%@" : {
+
+    },
+    "Installing…" : {
+
+    },
     "Intercept" : {
       "comment" : "Primary toolbar start button",
       "extractionState" : "manual",
@@ -795,6 +831,9 @@
           }
         }
       }
+    },
+    "Interceptor %@ is available" : {
+
     },
     "Isolated clock domain · Zero impact on source Playback Engine" : {
       "comment" : "Destination card helper caption",
@@ -1120,6 +1159,9 @@
         }
       }
     },
+    "Notes" : {
+
+    },
     "Open Interceptor" : {
       "comment" : "Menu bar action row to reveal main window",
       "extractionState" : "manual",
@@ -1408,6 +1450,9 @@
         }
       }
     },
+    "Release Status" : {
+
+    },
     "Remove %@" : {
 
     },
@@ -1626,6 +1671,9 @@
           }
         }
       }
+    },
+    "Select Interface…" : {
+
     },
     "Self-Feedback Guard" : {
       "comment" : "Inspector metric label",
@@ -2005,6 +2053,12 @@
         }
       }
     },
+    "Update Available (v%@)…" : {
+
+    },
+    "Updates" : {
+
+    },
     "Uses macOS System Audio Recording Only (separate from Screen Recording)." : {
       "comment" : "Inspector permission description",
       "extractionState" : "manual",
@@ -2016,6 +2070,12 @@
           }
         }
       }
+    },
+    "v%@" : {
+
+    },
+    "Verifying and installing update…" : {
+
     },
     "Virtual Devices" : {
       "comment" : "Sidebar section title listing virtual audio bridges",
@@ -2058,6 +2118,9 @@
           }
         }
       }
+    },
+    "You are running %@. Download and install directly from GitHub Releases." : {
+
     }
   },
   "version" : "1.0"
