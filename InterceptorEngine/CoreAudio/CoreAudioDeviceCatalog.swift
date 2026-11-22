@@ -109,68 +109,49 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
         }
     }
 
-    /// Returns user-facing macOS applications (excluding system daemons, XPC helpers,
-    /// background agents, and Interceptor itself) using their official commercial display names.
+    /// Returns user-facing macOS applications that are registered as Core Audio HAL clients
+    /// (excluding system daemons, XPC/WebKit helpers, Siri/system utilities, idle embedded helpers,
+    /// and Interceptor itself), using their official commercial display names.
     public func fetchAudioProcesses() -> [AudioProcessDescriptor] {
         let currentPID = getpid()
         let currentBundleID = Bundle.main.bundleIdentifier
 
-        // Track which bundle IDs are actively outputting audio in Core Audio right now.
-        var activeAudioBundleIDs = Set<String>()
-        var coreAudioProcessInfo: [String: (objectID: AudioObjectID, pid: pid_t, runningOutput: Bool)] = [:]
+        var resultsByBundleID: [String: AudioProcessDescriptor] = [:]
 
         if let processes = try? AudioHardwareSystem.shared.processes {
             for process in processes {
                 guard let pid = try? process.pid, pid != currentPID else { continue }
                 let runningOutput = (try? process.isRunningOutput) ?? false
-                guard let resolvedApp = resolveUserApplication(forPID: pid) else { continue }
+                let isRunningAudio = runningOutput || ((try? process.isRunning) ?? false)
+
+                guard let resolvedApp = resolveUserApplication(
+                    forPID: pid,
+                    isActivelyUsingAudio: isRunningAudio
+                ) else {
+                    continue
+                }
                 guard resolvedApp.bundleID != currentBundleID else { continue }
 
-                if runningOutput {
-                    activeAudioBundleIDs.insert(resolvedApp.bundleID)
-                }
-                if let existing = coreAudioProcessInfo[resolvedApp.bundleID] {
-                    coreAudioProcessInfo[resolvedApp.bundleID] = (
-                        existing.objectID,
-                        existing.pid,
-                        existing.runningOutput || runningOutput
-                    )
+                if let existing = resultsByBundleID[resolvedApp.bundleID] {
+                    // Preserve active output status and prefer the active process's objectID/pid.
+                    if runningOutput && !existing.isRunningOutput {
+                        resultsByBundleID[resolvedApp.bundleID] = AudioProcessDescriptor(
+                            objectID: process.id,
+                            pid: pid,
+                            bundleID: resolvedApp.bundleID,
+                            displayName: resolvedApp.displayName,
+                            isRunningOutput: true
+                        )
+                    }
                 } else {
-                    coreAudioProcessInfo[resolvedApp.bundleID] = (process.id, pid, runningOutput)
+                    resultsByBundleID[resolvedApp.bundleID] = AudioProcessDescriptor(
+                        objectID: process.id,
+                        pid: pid,
+                        bundleID: resolvedApp.bundleID,
+                        displayName: resolvedApp.displayName,
+                        isRunningOutput: runningOutput
+                    )
                 }
-            }
-        }
-
-        // Also include running regular user-facing apps (e.g. a DAW currently open in standby)
-        // so the user can target it cleanly even before pressing Play.
-        var resultsByBundleID: [String: AudioProcessDescriptor] = [:]
-        for runningApp in NSWorkspace.shared.runningApplications {
-            let pid = runningApp.processIdentifier
-            guard pid != currentPID else { continue }
-            guard let resolved = resolveUserApplication(from: runningApp) else { continue }
-            guard resolved.bundleID != currentBundleID else { continue }
-
-            let caInfo = coreAudioProcessInfo[resolved.bundleID]
-            let isOutputting = activeAudioBundleIDs.contains(resolved.bundleID)
-            resultsByBundleID[resolved.bundleID] = AudioProcessDescriptor(
-                objectID: caInfo?.objectID ?? kAudioObjectUnknown,
-                pid: caInfo?.pid ?? pid,
-                bundleID: resolved.bundleID,
-                displayName: resolved.displayName,
-                isRunningOutput: isOutputting
-            )
-        }
-
-        // Include any user-installed Core Audio app resolved from a helper process if not already present.
-        for (bundleID, caInfo) in coreAudioProcessInfo where resultsByBundleID[bundleID] == nil {
-            if let resolved = resolveUserApplication(forPID: caInfo.pid) {
-                resultsByBundleID[bundleID] = AudioProcessDescriptor(
-                    objectID: caInfo.objectID,
-                    pid: caInfo.pid,
-                    bundleID: bundleID,
-                    displayName: resolved.displayName,
-                    isRunningOutput: caInfo.runningOutput
-                )
             }
         }
 
@@ -182,21 +163,28 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
         }
     }
 
-    /// Resolves a PID to a legitimate user-facing macOS application and its commercial name,
-    /// filtering out system daemons, CoreServices agents, extensions, and helper binaries.
-    private func resolveUserApplication(forPID pid: pid_t) -> (bundleID: String, displayName: String)? {
+    /// Resolves a Core Audio client PID to a legitimate user-facing macOS application and its
+    /// commercial name, filtering out system daemons, CoreServices agents, extensions, and idle helpers.
+    private func resolveUserApplication(
+        forPID pid: pid_t,
+        isActivelyUsingAudio: Bool
+    ) -> (bundleID: String, displayName: String)? {
         guard let runningApp = NSRunningApplication(processIdentifier: pid) else {
             return nil
         }
-        return resolveUserApplication(from: runningApp)
+        return resolveUserApplication(from: runningApp, isActivelyUsingAudio: isActivelyUsingAudio)
     }
 
-    private func resolveUserApplication(from app: NSRunningApplication) -> (bundleID: String, displayName: String)? {
+    private func resolveUserApplication(
+        from app: NSRunningApplication,
+        isActivelyUsingAudio: Bool
+    ) -> (bundleID: String, displayName: String)? {
         guard let rawBundleURL = app.bundleURL else { return nil }
 
-        // If this is an embedded helper app inside a parent .app bundle (e.g., Electron/Chromium/Drive helper),
+        // If this is an embedded helper app inside a parent .app bundle (e.g., Electron/Chromium helper),
         // walk up to the enclosing commercial .app bundle.
         let topAppURL = enclosingTopLevelAppURL(for: rawBundleURL) ?? rawBundleURL
+        let isEmbeddedHelper = topAppURL != rawBundleURL
         let path = topAppURL.path
 
         // Exclude system daemons, CoreServices, PrivateFrameworks, extensions, and XPC bundles.
@@ -205,8 +193,14 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
             return nil
         }
 
+        // Only surface embedded Electron/Chromium helper processes when they are actively using audio,
+        // preventing idle IDEs or non-audio web wrappers from cluttering the menu.
+        if isEmbeddedHelper && !isActivelyUsingAudio {
+            return nil
+        }
+
         // Allow regular GUI apps anywhere outside /System/Library, and allow accessory menu-bar apps
-        // only when installed in standard user/Applications folders (e.g. SoundID Reference, audio utilities).
+        // only when installed in standard Applications folders (e.g. SoundID Reference, audio utilities).
         let isUserApplicationsLocation = path.hasPrefix("/Applications/") ||
             path.hasPrefix("/System/Applications/") ||
             path.contains("/Applications/")
@@ -215,10 +209,10 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
         case .regular:
             guard isUserApplicationsLocation || !path.hasPrefix("/System/") else { return nil }
         case .accessory:
-            guard isUserApplicationsLocation, topAppURL == rawBundleURL else { return nil }
+            guard isUserApplicationsLocation, !isEmbeddedHelper else { return nil }
         case .prohibited:
-            // Only accept a prohibited helper if it resolved upward to a genuine regular user app.
-            guard topAppURL != rawBundleURL, isUserApplicationsLocation else { return nil }
+            // Only accept a prohibited helper if it resolved upward to a genuine user app actively using audio.
+            guard isEmbeddedHelper, isActivelyUsingAudio, isUserApplicationsLocation else { return nil }
         @unknown default:
             return nil
         }
@@ -229,12 +223,25 @@ public final class CoreAudioDeviceCatalog: @unchecked Sendable {
             return nil
         }
 
-        // Exclude non-audio macOS desktop utilities that don't make sense as tap targets.
+        // Exclude macOS system assistants and non-audio desktop utilities.
         let excludedSystemBundleIDs: Set<String> = [
+            "com.apple.Siri",
+            "com.apple.controlcenter",
+            "com.apple.dock",
+            "com.apple.notificationcenterui",
+            "com.apple.Spotlight",
+            "com.apple.loginwindow",
+            "com.apple.PowerChime",
             "com.apple.finder",
             "com.apple.systempreferences",
             "com.apple.ActivityMonitor",
-            "com.apple.Terminal"
+            "com.apple.Terminal",
+            "com.apple.clock",
+            "com.apple.findmy",
+            "com.apple.Home",
+            "com.apple.journal",
+            "com.apple.stocks",
+            "com.apple.weather"
         ]
         if excludedSystemBundleIDs.contains(bundleID) {
             return nil

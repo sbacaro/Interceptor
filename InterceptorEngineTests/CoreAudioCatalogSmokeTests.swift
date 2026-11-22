@@ -35,6 +35,13 @@ struct CoreAudioCatalogSmokeTests {
             "voicebankingd",
             "CoreSpeech",
             "PowerChime",
+            "Siri",
+            "Clock",
+            "Find My",
+            "Home",
+            "Journal",
+            "Stocks",
+            "Weather",
             "helper"
         ]
 

@@ -51,18 +51,32 @@ struct SignalPathHeaderView: View {
                         menuCheckLabel("All Processes", isSelected: bridge.processTarget == .allProcesses)
                     }
 
-                    if !viewModel.engine.availableProcesses.isEmpty {
+                    let activeProcs = viewModel.engine.availableProcesses.filter(\.isRunningOutput)
+                    let standbyProcs = viewModel.engine.availableProcesses.filter { !$0.isRunningOutput }
+
+                    if !activeProcs.isEmpty {
                         Divider()
-                        ForEach(viewModel.engine.availableProcesses) { process in
+                        ForEach(activeProcs) { process in
                             if let bundleID = process.bundleID {
                                 let target = ProcessTarget.application(bundleID: bundleID, displayName: process.displayName)
                                 Button {
                                     viewModel.updateBridge(id: bridge.id) { $0.processTarget = target }
                                 } label: {
-                                    menuCheckLabel(
-                                        process.isRunningOutput ? "\(process.displayName) (Active)" : process.displayName,
-                                        isSelected: bridge.processTarget == target
-                                    )
+                                    menuCheckLabel("\(process.displayName) (Active)", isSelected: bridge.processTarget == target)
+                                }
+                            }
+                        }
+                    }
+
+                    if !standbyProcs.isEmpty {
+                        Divider()
+                        ForEach(standbyProcs) { process in
+                            if let bundleID = process.bundleID {
+                                let target = ProcessTarget.application(bundleID: bundleID, displayName: process.displayName)
+                                Button {
+                                    viewModel.updateBridge(id: bridge.id) { $0.processTarget = target }
+                                } label: {
+                                    menuCheckLabel(process.displayName, isSelected: bridge.processTarget == target)
                                 }
                             }
                         }
