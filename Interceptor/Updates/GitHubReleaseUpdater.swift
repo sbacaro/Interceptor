@@ -94,6 +94,8 @@ public final class GitHubReleaseUpdater {
     public private(set) var state: UpdateCheckState = .idle
     public private(set) var lastCheckedDate: Date?
     public var isBannerDismissed: Bool = false
+    @ObservationIgnored
+    public var onError: (@MainActor (String) -> Void)?
 
     public var autoCheckEnabled: Bool {
         didSet {
@@ -170,7 +172,7 @@ public final class GitHubReleaseUpdater {
                 self.defaults.set(now.timeIntervalSince1970, forKey: DefaultsKey.lastCheckTimestamp)
 
                 guard let remoteVersion = SemanticVersion(parsing: release.tagName) else {
-                    self.state = .error("Unrecognized release version tag: \(release.tagName)")
+                    self.setError("Unrecognized release version tag: \(release.tagName)")
                     return
                 }
 
@@ -183,7 +185,7 @@ public final class GitHubReleaseUpdater {
                     $0.name.lowercased().hasSuffix(".zip")
                 }), let downloadURL = URL(string: zipAsset.browserDownloadURL),
                    Self.isTrustedGitHubURL(downloadURL) else {
-                    self.state = .error("Release \(release.tagName) does not contain a valid macOS .zip asset.")
+                    self.setError("Release \(release.tagName) does not contain a valid macOS .zip asset.")
                     return
                 }
 
@@ -204,7 +206,7 @@ public final class GitHubReleaseUpdater {
             } catch {
                 self.logger.error("Update check failed: \(error.localizedDescription)")
                 if userInitiated {
-                    self.state = .error(error.localizedDescription)
+                    self.setError(error.localizedDescription)
                 } else {
                     self.state = .idle
                 }
@@ -294,9 +296,14 @@ public final class GitHubReleaseUpdater {
             } catch {
                 try? FileManager.default.removeItem(at: tempRoot)
                 self.logger.error("Update installation failed: \(error.localizedDescription)")
-                self.state = .error(error.localizedDescription)
+                self.setError(error.localizedDescription)
             }
         }
+    }
+
+    private func setError(_ message: String) {
+        state = .error(message)
+        onError?(message)
     }
 
     // MARK: - Networking Helpers

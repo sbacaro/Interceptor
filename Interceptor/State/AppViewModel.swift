@@ -224,6 +224,15 @@ public final class AppViewModel {
         engine.preferredBufferFrames = savedBuffer > 0 ? savedBuffer : nil
         engine.driftBufferProfile = savedProfile
 
+        updater.onError = { [weak engine] message in
+            engine?.eventLog.record(
+                severity: .error,
+                category: .update,
+                sourceName: "Updater",
+                message: message
+            )
+        }
+
         self.selectedBridgeID = engine.bridges.first?.id
         refreshLaunchAtLoginStatus()
 

@@ -14,11 +14,14 @@ public final class InterceptorEngine {
         var desiredActive = false
         var activeTappedStreams: [Int] = []
         var pendingRebuildTask: Task<Void, Never>?
+        var lastLoggedUnderruns: UInt64 = 0
+        var lastLoggedOverruns: UInt64 = 0
     }
 
     private let logger = Logger(subsystem: "com.interceptor.audio", category: "InterceptorEngine")
     private let catalog: CoreAudioDeviceCatalog
     private let store: BridgeStore
+    public let eventLog: EventLog
 
     /// All currently connected Core Audio output interfaces.
     public private(set) var availableDevices: [AudioDeviceDescriptor] = []
@@ -62,13 +65,16 @@ public final class InterceptorEngine {
 
     private var pendingDeviceRefreshTask: Task<Void, Never>?
     private var pendingProcessRefreshTask: Task<Void, Never>?
+    private var xrunMonitorTask: Task<Void, Never>?
 
     public init(
         catalog: CoreAudioDeviceCatalog = CoreAudioDeviceCatalog(),
-        store: BridgeStore = BridgeStore()
+        store: BridgeStore = BridgeStore(),
+        eventLog: EventLog = EventLog()
     ) {
         self.catalog = catalog
         self.store = store
+        self.eventLog = eventLog
 
         refreshDevices()
         loadOrCreateInitialBridges()
@@ -311,6 +317,29 @@ public final class InterceptorEngine {
 
     // MARK: - Bridge Lifecycle
 
+    /// Computes a non-wrapping XRun delta against the last logged baseline (guards against counter resets).
+    public nonisolated static func xrunDelta(current: UInt64, lastLogged: UInt64) -> UInt64 {
+        current >= lastLogged ? (current - lastLogged) : current
+    }
+
+    /// Formats coalesced underrun/overrun deltas from one monitor tick into a diagnostic message.
+    public nonisolated static func formatXRunEventMessage(
+        underrunDelta: UInt64,
+        overrunDelta: UInt64,
+        totalXRuns: UInt64
+    ) -> String? {
+        switch (underrunDelta, overrunDelta) {
+        case (0, 0):
+            return nil
+        case (let underruns, 0):
+            return "Buffer underrun (+\(underruns), total \(totalXRuns)) — source stream stalled"
+        case (0, let overruns):
+            return "Buffer overrun (+\(overruns), total \(totalXRuns)) — monitor output stalled"
+        case (let underruns, let overruns):
+            return "Buffer underrun (+\(underruns)) and overrun (+\(overruns)) (total \(totalXRuns))"
+        }
+    }
+
     public func startBridge(id: UUID) {
         guard let config = bridge(for: id) else { return }
         let runtime = ensureRuntime(for: id)
@@ -318,21 +347,29 @@ public final class InterceptorEngine {
         refreshDevices()
 
         guard let source = sourceDevice(for: config) else {
-            setPersistedActiveState(true, forBridgeID: id)
-            var t = telemetry(for: id)
-            t.state = .waitingForDevice(role: .source, deviceName: config.sourceDeviceName ?? "Source Interface")
-            telemetryByBridgeID[id] = t
-            syncLatencyCriticalActivity()
+            transitionToWaitingForOfflineDevice(
+                id: id,
+                config: config,
+                role: .source,
+                deviceName: config.sourceDeviceName ?? "Source Interface"
+            )
             return
         }
         guard let destination = destinationDevice(for: config) else {
-            setPersistedActiveState(true, forBridgeID: id)
-            var t = telemetry(for: id)
-            t.state = .waitingForDevice(role: .destination, deviceName: config.destinationDeviceName ?? "Monitor Interface")
-            telemetryByBridgeID[id] = t
-            syncLatencyCriticalActivity()
+            transitionToWaitingForOfflineDevice(
+                id: id,
+                config: config,
+                role: .destination,
+                deviceName: config.destinationDeviceName ?? "Monitor Interface"
+            )
             return
         }
+
+        if telemetry(for: id).state.isRunning {
+            flushPendingXRunEvents(forBridgeID: id, runtime: runtime)
+        }
+        runtime.lastLoggedUnderruns = 0
+        runtime.lastLoggedOverruns = 0
 
         var startingTelemetry = telemetry(for: id)
         startingTelemetry.state = .starting
@@ -361,9 +398,11 @@ public final class InterceptorEngine {
                 }
             )
 
+            runtime.lastLoggedUnderruns = 0
+            runtime.lastLoggedOverruns = 0
             runtime.activeTappedStreams = info.tappedStreamIndices
             setPersistedActiveState(true, forBridgeID: id)
-            telemetryByBridgeID[id] = EngineTelemetry(
+            let startedTelemetry = EngineTelemetry(
                 state: .running,
                 sourceSampleRate: info.sourceSampleRate,
                 destinationSampleRate: info.destinationSampleRate,
@@ -377,27 +416,69 @@ public final class InterceptorEngine {
                 activeRouteCount: config.routes.filter(\.isEnabled).count,
                 activeOutputChannelCount: info.destinationOutputChannels
             )
+            telemetryByBridgeID[id] = startedTelemetry
+            let rateSummary = startedTelemetry.isSampleRateConverted
+                ? "\(AudioDeviceDescriptor.formatSampleRate(info.sourceSampleRate)) → \(AudioDeviceDescriptor.formatSampleRate(info.destinationSampleRate))"
+                : AudioDeviceDescriptor.formatSampleRate(info.destinationSampleRate)
+            let pathSummary = startedTelemetry.isSampleRateConverted ? "SRC" : "Bit-Transparent"
+            let latencySummary = String(format: "%.1f ms", info.estimatedLatencyMs)
+            eventLog.record(
+                severity: .info,
+                category: .audio,
+                bridgeID: id,
+                sourceName: config.name,
+                message: "Started (\(source.name) → \(destination.name), \(rateSummary), \(info.bufferFrames) frames, \(latencySummary), \(pathSummary))"
+            )
             syncLatencyCriticalActivity()
         } catch AudioTapBridgeError.permissionDenied {
             runtime.desiredActive = false
+            runtime.lastLoggedUnderruns = 0
+            runtime.lastLoggedOverruns = 0
             var t = telemetry(for: id)
             t.state = .permissionRequired
             telemetryByBridgeID[id] = t
+            eventLog.record(
+                severity: .error,
+                category: .permission,
+                bridgeID: id,
+                sourceName: config.name,
+                message: "System Audio Recording permission required to tap \"\(source.name)\""
+            )
             syncLatencyCriticalActivity()
             logger.error("System Audio Recording permission denied for bridge \(config.name).")
         } catch {
             runtime.desiredActive = false
+            runtime.lastLoggedUnderruns = 0
+            runtime.lastLoggedOverruns = 0
             var t = telemetry(for: id)
             t.state = .error(error.localizedDescription)
             telemetryByBridgeID[id] = t
+            eventLog.record(
+                severity: .error,
+                category: .audio,
+                bridgeID: id,
+                sourceName: config.name,
+                message: "Failed to start bridge: \(error.localizedDescription)"
+            )
             syncLatencyCriticalActivity()
             logger.error("Failed to start bridge \(config.name): \(error.localizedDescription)")
         }
     }
 
     public func stopBridge(id: UUID) {
+        let wasActiveOrPending = isBridgeActiveOrPending(id)
+        let bridgeName = bridge(for: id)?.name
         teardownBridge(id: id)
         setPersistedActiveState(false, forBridgeID: id)
+        if wasActiveOrPending, let bridgeName {
+            eventLog.record(
+                severity: .info,
+                category: .audio,
+                bridgeID: id,
+                sourceName: bridgeName,
+                message: "Bridge stopped"
+            )
+        }
         syncLatencyCriticalActivity()
     }
 
@@ -419,15 +500,28 @@ public final class InterceptorEngine {
     public func restoreActiveBridges() {
         let activeIDs = bridges.filter(\.wasActive).map(\.id)
         guard !activeIDs.isEmpty else { return }
-        for id in activeIDs where !isBridgeActiveOrPending(id) {
-            guard let config = bridge(for: id),
+        let restorableBridges = activeIDs.compactMap { id -> AudioBridgeConfiguration? in
+            guard !isBridgeActiveOrPending(id),
+                  let config = bridge(for: id),
                   config.sourceDeviceUID != nil,
                   config.destinationDeviceUID != nil,
                   config.routes.contains(where: \.isEnabled) else {
-                continue
+                return nil
             }
+            return config
+        }
+        guard !restorableBridges.isEmpty else { return }
+        let count = restorableBridges.count
+        let summary = count == 1 ? "1 active bridge" : "\(count) active bridges"
+        eventLog.record(
+            severity: .info,
+            category: .system,
+            sourceName: "System",
+            message: "Restoring \(summary) on launch"
+        )
+        for config in restorableBridges {
             logger.info("Restoring previously active bridge \(config.name).")
-            startBridge(id: id)
+            startBridge(id: config.id)
         }
     }
 
@@ -481,6 +575,7 @@ public final class InterceptorEngine {
     /// Releases all Core Audio resources synchronously during app termination or update relaunch,
     /// preserving each bridge's persisted `wasActive` state so active bridges can be restored on next launch.
     public func shutdown() {
+        stopXRunMonitorLoop()
         pendingDeviceRefreshTask?.cancel()
         pendingDeviceRefreshTask = nil
         pendingProcessRefreshTask?.cancel()
@@ -494,12 +589,85 @@ public final class InterceptorEngine {
 
     // MARK: - Internal Coordination
 
+    private func transitionToWaitingForOfflineDevice(
+        id: UUID,
+        config: AudioBridgeConfiguration,
+        role: DeviceRole,
+        deviceName: String
+    ) {
+        setPersistedActiveState(true, forBridgeID: id)
+        let targetState = EngineState.waitingForDevice(role: role, deviceName: deviceName)
+        var t = telemetry(for: id)
+        let wasAlreadyWaiting = t.state == targetState
+        t.state = targetState
+        telemetryByBridgeID[id] = t
+        if !wasAlreadyWaiting {
+            let roleLabel = role == .source ? "source" : "monitor"
+            eventLog.record(
+                severity: .warning,
+                category: .device,
+                bridgeID: id,
+                sourceName: config.name,
+                message: "Waiting for offline \(roleLabel) interface \"\(deviceName)\""
+            )
+        }
+        syncLatencyCriticalActivity()
+    }
+
+    private func evaluatePendingXRunEvents() {
+        for (id, runtime) in runtimes where telemetryByBridgeID[id]?.state.isRunning == true {
+            flushPendingXRunEvents(forBridgeID: id, runtime: runtime)
+        }
+    }
+
+    private func flushPendingXRunEvents(forBridgeID id: UUID, runtime: BridgeRuntime) {
+        let meterBank = runtime.tapBridge.processor.meterBank
+        let currentUnderruns = meterBank.underrunCount
+        let currentOverruns = meterBank.overrunCount
+        let currentTotal = meterBank.xrunCount
+
+        let underrunDelta = Self.xrunDelta(current: currentUnderruns, lastLogged: runtime.lastLoggedUnderruns)
+        let overrunDelta = Self.xrunDelta(current: currentOverruns, lastLogged: runtime.lastLoggedOverruns)
+
+        runtime.lastLoggedUnderruns = currentUnderruns
+        runtime.lastLoggedOverruns = currentOverruns
+
+        if var t = telemetryByBridgeID[id], t.xrunCount != currentTotal {
+            t.xrunCount = currentTotal
+            telemetryByBridgeID[id] = t
+        }
+
+        if let message = Self.formatXRunEventMessage(
+            underrunDelta: underrunDelta,
+            overrunDelta: overrunDelta,
+            totalXRuns: currentTotal
+        ) {
+            let sourceName = bridge(for: id)?.name ?? "Bridge"
+            eventLog.record(
+                severity: .warning,
+                category: .audio,
+                bridgeID: id,
+                sourceName: sourceName,
+                message: message
+            )
+        }
+    }
+
+    private func stopTapAndResetXRunBaseline(forBridgeID id: UUID, runtime: BridgeRuntime) {
+        if telemetryByBridgeID[id]?.state.isRunning == true {
+            flushPendingXRunEvents(forBridgeID: id, runtime: runtime)
+        }
+        runtime.tapBridge.stop()
+        runtime.lastLoggedUnderruns = 0
+        runtime.lastLoggedOverruns = 0
+    }
+
     private func teardownBridge(id: UUID) {
         if let runtime = runtimes[id] {
             runtime.desiredActive = false
             runtime.pendingRebuildTask?.cancel()
             runtime.pendingRebuildTask = nil
-            runtime.tapBridge.stop()
+            stopTapAndResetXRunBaseline(forBridgeID: id, runtime: runtime)
             runtime.activeTappedStreams = []
         }
 
@@ -514,7 +682,8 @@ public final class InterceptorEngine {
     }
 
     /// Keeps macOS from applying App Nap, timer coalescing, or Efficiency-core throttling
-    /// while Interceptor is running active audio bridges (especially when hidden in the Menu Bar).
+    /// while Interceptor is running active audio bridges (especially when hidden in the Menu Bar),
+    /// and maintains a 1 Hz background XRun monitor while any bridge is running.
     private func syncLatencyCriticalActivity() {
         let shouldHoldAssertion = anyBridgeActiveOrPending
         if shouldHoldAssertion && latencyActivityToken == nil {
@@ -528,6 +697,33 @@ public final class InterceptorEngine {
             latencyActivityToken = nil
             logger.info("Released latency-critical ProcessInfo activity assertion.")
         }
+
+        if anyBridgeRunning {
+            startXRunMonitorLoop()
+        } else {
+            stopXRunMonitorLoop()
+        }
+    }
+
+    private func startXRunMonitorLoop() {
+        guard xrunMonitorTask == nil else { return }
+        xrunMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { break }
+                guard self.anyBridgeRunning else {
+                    self.xrunMonitorTask = nil
+                    break
+                }
+                self.syncXRunCounts()
+                self.evaluatePendingXRunEvents()
+            }
+        }
+    }
+
+    private func stopXRunMonitorLoop() {
+        xrunMonitorTask?.cancel()
+        xrunMonitorTask = nil
     }
 
     private func scheduleDebouncedDeviceTopologyChange() {
@@ -615,7 +811,7 @@ public final class InterceptorEngine {
 
     private func restartBridge(id: UUID) {
         guard let runtime = runtimes[id], runtime.desiredActive else { return }
-        runtime.tapBridge.stop()
+        stopTapAndResetXRunBaseline(forBridgeID: id, runtime: runtime)
         startBridge(id: id)
     }
 
@@ -624,16 +820,28 @@ public final class InterceptorEngine {
         logger.warning("Active \(role.rawValue) interface disconnected on bridge \(config.name).")
         runtime.pendingRebuildTask?.cancel()
         runtime.pendingRebuildTask = nil
-        runtime.tapBridge.stop()
+        stopTapAndResetXRunBaseline(forBridgeID: bridgeID, runtime: runtime)
         refreshDevices()
 
-        if autoReconnectEnabled && runtime.desiredActive {
-            let name = role == .source
-                ? (config.sourceDeviceName ?? "Source Interface")
-                : (config.destinationDeviceName ?? "Monitor Interface")
+        let deviceName = role == .source
+            ? (config.sourceDeviceName ?? "Source Interface")
+            : (config.destinationDeviceName ?? "Monitor Interface")
+        let roleLabel = role == .source ? "Source" : "Monitor"
+        let willAutoReconnect = autoReconnectEnabled && runtime.desiredActive
+        let reconnectSuffix = willAutoReconnect ? " — waiting to reconnect" : ""
+        eventLog.record(
+            severity: .warning,
+            category: .device,
+            bridgeID: bridgeID,
+            sourceName: config.name,
+            message: "\(roleLabel) interface \"\(deviceName)\" disconnected\(reconnectSuffix)"
+        )
+
+        if willAutoReconnect {
             var t = telemetry(for: bridgeID)
-            t.state = .waitingForDevice(role: role, deviceName: name)
+            t.state = .waitingForDevice(role: role, deviceName: deviceName)
             telemetryByBridgeID[bridgeID] = t
+            syncLatencyCriticalActivity()
         } else {
             runtime.desiredActive = false
             stopBridge(id: bridgeID)
@@ -647,6 +855,15 @@ public final class InterceptorEngine {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled, let self, self.runtimes[bridgeID]?.desiredActive == true else { return }
             self.logger.info("Audio device format change detected; refreshing passive bridge.")
+            if let config = self.bridge(for: bridgeID) {
+                self.eventLog.record(
+                    severity: .warning,
+                    category: .clock,
+                    bridgeID: bridgeID,
+                    sourceName: config.name,
+                    message: "Audio format or sample rate changed — rebuilding bridge"
+                )
+            }
             self.refreshDevices()
             self.restartBridge(id: bridgeID)
         }
@@ -662,6 +879,13 @@ public final class InterceptorEngine {
             case .waitingForDevice:
                 if autoReconnectEnabled && sourceDevice(for: config) != nil && destinationDevice(for: config) != nil {
                     logger.info("Interface returned for bridge \(config.name); auto-reconnecting.")
+                    eventLog.record(
+                        severity: .info,
+                        category: .device,
+                        bridgeID: config.id,
+                        sourceName: config.name,
+                        message: "Audio interface returned — auto-reconnecting bridge"
+                    )
                     startBridge(id: config.id)
                 }
             case .running:
@@ -680,6 +904,16 @@ public final class InterceptorEngine {
         logger.warning("coreaudiod restarted; recovering active bridges.")
         let activeIDs = bridges.map(\.id).filter { runtimes[$0]?.desiredActive == true }
 
+        let restartMessage: String = activeIDs.isEmpty
+            ? "macOS audio daemon (coreaudiod) restarted"
+            : "macOS audio daemon (coreaudiod) restarted — recovering \(activeIDs.count) \(activeIDs.count == 1 ? "bridge" : "bridges")"
+        eventLog.record(
+            severity: .warning,
+            category: .system,
+            sourceName: "System",
+            message: restartMessage
+        )
+
         guard autoReconnectEnabled else {
             for id in activeIDs {
                 stopBridge(id: id)
@@ -688,13 +922,16 @@ public final class InterceptorEngine {
         }
 
         for id in activeIDs {
-            runtimes[id]?.tapBridge.stop()
-            runtimes[id]?.pendingRebuildTask?.cancel()
-            runtimes[id]?.pendingRebuildTask = nil
+            if let runtime = runtimes[id] {
+                stopTapAndResetXRunBaseline(forBridgeID: id, runtime: runtime)
+                runtime.pendingRebuildTask?.cancel()
+                runtime.pendingRebuildTask = nil
+            }
             var t = telemetry(for: id)
             t.state = .starting
             telemetryByBridgeID[id] = t
         }
+        syncLatencyCriticalActivity()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard let self else { return }
