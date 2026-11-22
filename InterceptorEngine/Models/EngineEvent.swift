@@ -200,19 +200,23 @@ public final class EventLog {
         markAllRead()
     }
 
+    private static let exportDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
     /// Formats events chronologically (oldest to newest) as single-line log records for copy or `.log` export.
     public static func exportText(for events: [EngineEvent]) -> String {
         guard !events.isEmpty else { return "" }
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
 
         // Reverse first so events supplied in newest-first store order preserve insertion order on equal timestamps.
         let chronological = events.reversed().sorted { $0.timestamp < $1.timestamp }
 
         return chronological.map { event in
-            let timestamp = formatter.string(from: event.timestamp)
+            let timestamp = exportDateFormatter.string(from: event.timestamp)
             let source = sanitizeSingleLine(event.sourceName)
             let message = sanitizeSingleLine(event.message)
             return "[\(timestamp)] [\(event.severity.exportLabel)] [\(event.category.exportLabel)] [\(source)] \(message)"

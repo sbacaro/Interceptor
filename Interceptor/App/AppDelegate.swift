@@ -272,14 +272,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scheduleAccessoryPolicyTransitionIfNoWindowsVisible() {
         pendingAccessoryTransition = true
 
-        // Switch to accessory policy on the next runloop tick only if neither Main nor Events remains visible,
-        // so closing the Main window while Events is open keeps the app in the Dock.
+        // Switch to accessory policy on the next runloop tick only if neither Main nor Events remains
+        // visible or miniaturized, so closing one window keeps an open or minimized other window in the Dock.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.pendingAccessoryTransition else { return }
             self.pendingAccessoryTransition = false
-            let mainVisible = self.mainWindow?.isVisible == true
-            let eventsVisible = self.eventsWindow?.isVisible == true
-            if !mainVisible && !eventsVisible && NSApp.activationPolicy() != .accessory {
+            let mainWindowOpen = self.mainWindow.map { $0.isVisible || $0.isMiniaturized } ?? false
+            let eventsWindowOpen = self.eventsWindow.map { $0.isVisible || $0.isMiniaturized } ?? false
+            if !mainWindowOpen && !eventsWindowOpen && NSApp.activationPolicy() != .accessory {
                 NSApp.setActivationPolicy(.accessory)
             }
         }

@@ -422,13 +422,16 @@ struct EventsWindowView: View {
         var seen: Set<String> = []
         var names: [String] = []
         for event in viewModel.engine.eventLog.entries {
-            let isConfiguredBridge = event.bridgeID.map { configuredBridgeIDs.contains($0) } ?? false
-            guard !isConfiguredBridge else { continue }
+            guard !isConfiguredBridgeEvent(event, configuredBridgeIDs: configuredBridgeIDs) else { continue }
             let name = event.sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, seen.insert(name).inserted else { continue }
             names.append(name)
         }
         return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private func isConfiguredBridgeEvent(_ event: EngineEvent, configuredBridgeIDs: Set<UUID>) -> Bool {
+        event.bridgeID.map(configuredBridgeIDs.contains) ?? false
     }
 
     private var availableSourceFilterIDs: Set<String> {
@@ -444,21 +447,17 @@ struct EventsWindowView: View {
 
     private func entriesFilteredBySourceAndSearch(from entries: [EngineEvent]) -> [EngineEvent] {
         let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredBridgeIDs = Set(viewModel.engine.bridges.map(\.id))
         return entries.filter { event in
             let matchesSource: Bool
             switch sourceFilter {
             case .all:
                 matchesSource = true
             case let .bridge(bridgeID):
-                if let eventBridgeID = event.bridgeID {
-                    matchesSource = eventBridgeID == bridgeID
-                } else if let bridgeName = viewModel.engine.bridge(for: bridgeID)?.name {
-                    matchesSource = event.sourceName == bridgeName
-                } else {
-                    matchesSource = false
-                }
+                matchesSource = event.bridgeID == bridgeID
             case let .named(name):
-                matchesSource = event.sourceName == name
+                matchesSource = !isConfiguredBridgeEvent(event, configuredBridgeIDs: configuredBridgeIDs) &&
+                    event.sourceName == name
             }
 
             guard matchesSource else { return false }
@@ -509,7 +508,11 @@ struct EventsWindowView: View {
                 try text.write(to: url, atomically: true, encoding: .utf8)
             } catch {
                 let alert = NSAlert(error: error)
-                alert.runModal()
+                if let window = appDelegate.activeEventsWindow ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                } else {
+                    alert.runModal()
+                }
             }
         }
 
@@ -638,10 +641,12 @@ private final class EventsWindowObserverNSView: NSView {
 
 #Preview("Events Window") {
     let log = EventLog()
-    log.record(severity: .info, category: .system, sourceName: "System", message: "Restoring 1 active bridge on launch")
-    log.record(severity: .warning, category: .clock, sourceName: "Main Monitor", message: "Audio format or sample rate changed — rebuilding bridge")
-    log.record(severity: .error, category: .permission, sourceName: "Main Monitor", message: "System Audio Recording permission required to tap \"Pro Tools HDX\"")
     let engine = InterceptorEngine(eventLog: log)
+    let bridge = engine.bridges.first
+    let bridgeName = bridge?.name ?? "Main Monitor"
+    log.record(severity: .info, category: .system, sourceName: "System", message: "Restoring 1 active bridge on launch")
+    log.record(severity: .warning, category: .clock, bridgeID: bridge?.id, sourceName: bridgeName, message: "Audio format or sample rate changed — rebuilding bridge")
+    log.record(severity: .error, category: .permission, bridgeID: bridge?.id, sourceName: bridgeName, message: "System Audio Recording permission required to tap \"Pro Tools HDX\"")
     let vm = AppViewModel(engine: engine)
     return EventsWindowView(viewModel: vm, appDelegate: AppDelegate())
         .frame(width: 740, height: 420)

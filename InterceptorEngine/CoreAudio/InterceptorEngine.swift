@@ -625,6 +625,7 @@ public final class InterceptorEngine {
         let currentUnderruns = meterBank.underrunCount
         let currentOverruns = meterBank.overrunCount
         let currentTotal = meterBank.xrunCount
+        let effectiveTotal = max(currentTotal, currentUnderruns &+ currentOverruns)
 
         let underrunDelta = Self.xrunDelta(current: currentUnderruns, lastLogged: runtime.lastLoggedUnderruns)
         let overrunDelta = Self.xrunDelta(current: currentOverruns, lastLogged: runtime.lastLoggedOverruns)
@@ -632,15 +633,15 @@ public final class InterceptorEngine {
         runtime.lastLoggedUnderruns = currentUnderruns
         runtime.lastLoggedOverruns = currentOverruns
 
-        if var t = telemetryByBridgeID[id], t.xrunCount != currentTotal {
-            t.xrunCount = currentTotal
+        if var t = telemetryByBridgeID[id], t.xrunCount != effectiveTotal {
+            t.xrunCount = effectiveTotal
             telemetryByBridgeID[id] = t
         }
 
         if let message = Self.formatXRunEventMessage(
             underrunDelta: underrunDelta,
             overrunDelta: overrunDelta,
-            totalXRuns: currentTotal
+            totalXRuns: effectiveTotal
         ) {
             let sourceName = bridge(for: id)?.name ?? "Bridge"
             eventLog.record(
@@ -715,7 +716,6 @@ public final class InterceptorEngine {
                     self.xrunMonitorTask = nil
                     break
                 }
-                self.syncXRunCounts()
                 self.evaluatePendingXRunEvents()
             }
         }
@@ -816,6 +816,7 @@ public final class InterceptorEngine {
     }
 
     private func handleActiveDeviceDisconnected(bridgeID: UUID, role: DeviceRole) {
+        guard telemetry(for: bridgeID).state.isRunning else { return }
         guard let config = bridge(for: bridgeID), let runtime = runtimes[bridgeID] else { return }
         logger.warning("Active \(role.rawValue) interface disconnected on bridge \(config.name).")
         runtime.pendingRebuildTask?.cancel()
