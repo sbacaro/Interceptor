@@ -1,0 +1,2049 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "" : {
+
+    },
+    "·" : {
+
+    },
+    "%@ %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$lld"
+          }
+        }
+      }
+    },
+    "%lld ch · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld ch · %2$@"
+          }
+        }
+      }
+    },
+    "%lld ch · %@ · %lld fr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld ch · %2$@ · %3$lld fr"
+          }
+        }
+      }
+    },
+    "64 frames" : {
+
+    },
+    "128 frames" : {
+
+    },
+    "256 frames" : {
+
+    },
+    "512 frames" : {
+
+    },
+    "Action Required" : {
+      "comment" : "Inspector permission status when denied",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Action Required"
+          }
+        }
+      }
+    },
+    "Active" : {
+      "comment" : "Generic active state",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active"
+          }
+        }
+      }
+    },
+    "Active (ASRC)" : {
+      "comment" : "Sample rate conversion active status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active (ASRC)"
+          }
+        }
+      }
+    },
+    "Active Routes" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active Routes"
+          }
+        }
+      }
+    },
+    "Add a channel to patch a source output directly to a monitor output." : {
+      "comment" : "Empty state description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a channel to patch a source output directly to a monitor output."
+          }
+        }
+      }
+    },
+    "Add a discrete mono channel patch (⌘N)" : {
+
+    },
+    "Add a route to monitor discrete output channels." : {
+      "comment" : "Empty routes state description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a route to monitor discrete output channels."
+          }
+        }
+      }
+    },
+    "Add a route to patch a source channel to a monitor output." : {
+      "comment" : "Empty channel routes description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a route to patch a source channel to a monitor output."
+          }
+        }
+      }
+    },
+    "Add Channel" : {
+      "comment" : "Button to add a mono channel patch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Channel"
+          }
+        }
+      }
+    },
+    "Add Route" : {
+      "comment" : "Button to add a discrete channel route",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Route"
+          }
+        }
+      }
+    },
+    "All Processes" : {
+      "comment" : "Default process filter short label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Processes"
+          }
+        }
+      }
+    },
+    "All Processes (Device Stream)" : {
+      "comment" : "Default process tap scope option",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Processes (Device Stream)"
+          }
+        }
+      }
+    },
+    "Applies only to Interceptor's private monitoring bridges and never modifies your playback interface or DAW Playback Engine settings." : {
+      "comment" : "Settings buffer footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies only to Interceptor's private monitoring bridges and never modifies your playback interface or DAW Playback Engine settings."
+          }
+        }
+      }
+    },
+    "Audio Bridge Error" : {
+      "comment" : "Error banner title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio Bridge Error"
+          }
+        }
+      }
+    },
+    "Audio Capture" : {
+      "comment" : "Inspector permission status row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio Capture"
+          }
+        }
+      }
+    },
+    "Audio Capture Ready" : {
+      "comment" : "Inspector permission ready status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio Capture Ready"
+          }
+        }
+      }
+    },
+    "Audio Capture Required" : {
+      "comment" : "Popover permission required status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio Capture Required"
+          }
+        }
+      }
+    },
+    "Audio Engine" : {
+      "comment" : "Settings tab title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio Engine"
+          }
+        }
+      }
+    },
+    "Automatic (Match Monitor Interface)" : {
+      "comment" : "Buffer size automatic option",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic (Match Monitor Interface)"
+          }
+        }
+      }
+    },
+    "Automatically reconnect interfaces after disconnect" : {
+      "comment" : "Settings toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically reconnect interfaces after disconnect"
+          }
+        }
+      }
+    },
+    "Behavior" : {
+      "comment" : "General settings section",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behavior"
+          }
+        }
+      }
+    },
+    "Bridge" : {
+      "comment" : "Top-level Bridge menu bar menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridge"
+          }
+        }
+      }
+    },
+    "Bridge Clock" : {
+      "comment" : "LabeledContent key for destination bridge clock status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridge Clock"
+          }
+        }
+      }
+    },
+    "Bridge Info" : {
+      "comment" : "Toolbar button for audio bridge info popover",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridge Info"
+          }
+        }
+      }
+    },
+    "Bridge Performance" : {
+      "comment" : "Inspector section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridge Performance"
+          }
+        }
+      }
+    },
+    "Buffer Size" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buffer Size"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "comment" : "Dialog cancel button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "Capture Mode" : {
+      "comment" : "Form labeled content row for passive tap guarantee",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture Mode"
+          }
+        }
+      }
+    },
+    "Channel level" : {
+      "comment" : "Accessibility label for per-channel VU meter",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channel level"
+          }
+        }
+      }
+    },
+    "Channel Name" : {
+      "comment" : "Inline route rename prompt",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channel Name"
+          }
+        }
+      }
+    },
+    "Channel Routes" : {
+      "comment" : "Main patch bay section title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channel Routes"
+          }
+        }
+      }
+    },
+    "Channel Trim" : {
+      "comment" : "Per-channel trim popover title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channel Trim"
+          }
+        }
+      }
+    },
+    "Channels" : {
+      "comment" : "Mono channel list section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channels"
+          }
+        }
+      }
+    },
+    "Clear Clip Indicators" : {
+      "comment" : "Menu command to reset clip indicators",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Clip Indicators"
+          }
+        }
+      }
+    },
+    "Click to rename channel" : {
+
+    },
+    "Clock & Bridge" : {
+      "comment" : "Inspector combined clock and bridge performance section",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clock & Bridge"
+          }
+        }
+      }
+    },
+    "Clock & Drift" : {
+      "comment" : "Inspector section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clock & Drift"
+          }
+        }
+      }
+    },
+    "Clock Master" : {
+      "comment" : "Badge on destination interface card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clock Master"
+          }
+        }
+      }
+    },
+    "Core Audio SubTap Drift Compensation bridges clock domains automatically without adding your source interface to an aggregate device." : {
+      "comment" : "Monitor Destination section footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Core Audio SubTap Drift Compensation bridges clock domains automatically without adding your source interface to an aggregate device."
+          }
+        }
+      }
+    },
+    "Core Audio SubTap Drift Compensation synchronizes clocks automatically without adding your source interface to an aggregate device." : {
+      "comment" : "Monitor Destination section footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Core Audio SubTap Drift Compensation synchronizes clocks automatically without adding your source interface to an aggregate device."
+          }
+        }
+      }
+    },
+    "Create a new virtual routing bridge (⇧⌘N)" : {
+
+    },
+    "Create a virtual routing device to intercept and monitor discrete audio channels." : {
+      "comment" : "Empty state description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a virtual routing device to intercept and monitor discrete audio channels."
+          }
+        }
+      }
+    },
+    "Custom Setup" : {
+      "comment" : "Menu bar preset picker option when unsaved",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Setup"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "comment" : "Preset context menu action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "Delete selected virtual bridge" : {
+
+    },
+    "Delete Virtual Bridge" : {
+      "comment" : "Tooltip for minus button deleting selected bridge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Virtual Bridge"
+          }
+        }
+      }
+    },
+    "Device Name" : {
+      "comment" : "Inline rename prompt for virtual device in sidebar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Device Name"
+          }
+        }
+      }
+    },
+    "Dim" : {
+      "comment" : "Short dim button label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim"
+          }
+        }
+      }
+    },
+    "Dim Attenuation" : {
+      "comment" : "Settings picker label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim Attenuation"
+          }
+        }
+      }
+    },
+    "Dim Monitor" : {
+      "comment" : "Menu command to toggle dim",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim Monitor"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "comment" : "Sheet dismiss button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        }
+      }
+    },
+    "Drift Comp." : {
+      "comment" : "Inspector short label for drift compensation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drift Comp."
+          }
+        }
+      }
+    },
+    "Drift Compensation" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drift Compensation"
+          }
+        }
+      }
+    },
+    "Duplicate" : {
+      "comment" : "Preset context menu action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate"
+          }
+        }
+      }
+    },
+    "Edit Name…" : {
+      "comment" : "Preset context menu action to rename a saved preset",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Name…"
+          }
+        }
+      }
+    },
+    "Enable Channel" : {
+      "comment" : "Accessibility label for channel enable switch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Channel"
+          }
+        }
+      }
+    },
+    "Enable or bypass this channel" : {
+
+    },
+    "Enabled" : {
+      "comment" : "Generic enabled metric value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enabled"
+          }
+        }
+      }
+    },
+    "Feedback Guard" : {
+      "comment" : "Inspector label for self-feedback prevention",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback Guard"
+          }
+        }
+      }
+    },
+    "Filter which application output is tapped on the source interface" : {
+
+    },
+    "General" : {
+      "comment" : "Settings tab title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General"
+          }
+        }
+      }
+    },
+    "Hide Bridge Info" : {
+      "comment" : "Menu command to hide bridge info",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Bridge Info"
+          }
+        }
+      }
+    },
+    "Hide Inspector" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Inspector"
+          }
+        }
+      }
+    },
+    "Inspector" : {
+      "comment" : "Toolbar inspector button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inspector"
+          }
+        }
+      }
+    },
+    "Intercept" : {
+      "comment" : "Primary toolbar start button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intercept"
+          }
+        }
+      }
+    },
+    "Intercepting" : {
+
+    },
+    "Interceptor" : {
+      "comment" : "Application name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interceptor"
+          }
+        }
+      }
+    },
+    "Isolated clock domain · Zero impact on source Playback Engine" : {
+      "comment" : "Destination card helper caption",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isolated clock domain · Zero impact on source Playback Engine"
+          }
+        }
+      }
+    },
+    "Keep running in Menu Bar when main window closes" : {
+      "comment" : "Settings toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep running in Menu Bar when main window closes"
+          }
+        }
+      }
+    },
+    "Manage Presets…" : {
+      "comment" : "Presets menu management action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage Presets…"
+          }
+        }
+      }
+    },
+    "Map any discrete output channels from the source interface to your monitor outputs. Edits apply live without interrupting audio." : {
+      "comment" : "Channel routes section subtitle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Map any discrete output channels from the source interface to your monitor outputs. Edits apply live without interrupting audio."
+          }
+        }
+      }
+    },
+    "Matched" : {
+      "comment" : "Sample rates match status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matched"
+          }
+        }
+      }
+    },
+    "Monitor" : {
+      "comment" : "Top-level menu bar menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor"
+          }
+        }
+      }
+    },
+    "Monitor Controller" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Controller"
+          }
+        }
+      }
+    },
+    "Monitor Destination" : {
+      "comment" : "Form section header for destination monitor interface",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Destination"
+          }
+        }
+      }
+    },
+    "Monitor Destination Interface" : {
+      "comment" : "Destination device card title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Destination Interface"
+          }
+        }
+      }
+    },
+    "Monitor Interface" : {
+      "comment" : "Destination monitor interface picker label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Interface"
+          }
+        }
+      }
+    },
+    "Monitor Latency" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Latency"
+          }
+        }
+      }
+    },
+    "Monitor Master Volume" : {
+      "comment" : "Accessibility label for master volume slider",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Master Volume"
+          }
+        }
+      }
+    },
+    "Monitor Rate" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Rate"
+          }
+        }
+      }
+    },
+    "Monitor Volume" : {
+      "comment" : "Menu bar volume slider label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitor Volume"
+          }
+        }
+      }
+    },
+    "Mono" : {
+      "comment" : "Mono button label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mono"
+          }
+        }
+      }
+    },
+    "Mono Sum" : {
+      "comment" : "Menu command to toggle mono sum",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mono Sum"
+          }
+        }
+      }
+    },
+    "Mute" : {
+      "comment" : "Mute button label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mute"
+          }
+        }
+      }
+    },
+    "Mute Monitor" : {
+      "comment" : "Menu command to toggle mute",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mute Monitor"
+          }
+        }
+      }
+    },
+    "New Channel Route" : {
+      "comment" : "File menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Channel Route"
+          }
+        }
+      }
+    },
+    "New Virtual Bridge" : {
+      "comment" : "Action to create a new virtual routing bridge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Virtual Bridge"
+          }
+        }
+      }
+    },
+    "New Virtual Device" : {
+      "comment" : "Empty state button to create a new virtual device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Virtual Device"
+          }
+        }
+      }
+    },
+    "No Channel Routes" : {
+      "comment" : "Empty state title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Channel Routes"
+          }
+        }
+      }
+    },
+    "No Channels" : {
+      "comment" : "Empty state title when bridge has no channel routes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Channels"
+          }
+        }
+      }
+    },
+    "No Output Interfaces Found" : {
+      "comment" : "Picker fallback when no output interfaces exist",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Output Interfaces Found"
+          }
+        }
+      }
+    },
+    "No Saved Presets" : {
+      "comment" : "Presets menu empty item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Saved Presets"
+          }
+        }
+      }
+    },
+    "No Virtual Device Selected" : {
+      "comment" : "Empty state title when no virtual bridge is selected",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Virtual Device Selected"
+          }
+        }
+      }
+    },
+    "Non-Exclusive" : {
+      "comment" : "Source exclusivity indicator",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non-Exclusive"
+          }
+        }
+      }
+    },
+    "Open Interceptor" : {
+      "comment" : "Menu bar action row to reveal main window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Interceptor"
+          }
+        }
+      }
+    },
+    "Open Privacy Settings…" : {
+      "comment" : "Button opening macOS Privacy settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Privacy Settings…"
+          }
+        }
+      }
+    },
+    "Open System Settings" : {
+      "comment" : "Permission banner primary button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open System Settings"
+          }
+        }
+      }
+    },
+    "Output Interface" : {
+      "comment" : "Form picker label for audio output interface",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output Interface"
+          }
+        }
+      }
+    },
+    "Passive · Unmuted" : {
+      "comment" : "Source card passive tap badge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passive · Unmuted"
+          }
+        }
+      }
+    },
+    "Passive · Unmuted · Non-Exclusive" : {
+      "comment" : "Tap integrity reassuring status value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passive · Unmuted · Non-Exclusive"
+          }
+        }
+      }
+    },
+    "Passive (Unmuted)" : {
+      "comment" : "Tap mode indicator",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passive (Unmuted)"
+          }
+        }
+      }
+    },
+    "Passive Core Audio Tap" : {
+      "comment" : "Sidebar standby subtitle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passive Core Audio Tap"
+          }
+        }
+      }
+    },
+    "Passive Tap" : {
+      "comment" : "Popover badge for passive tap mode",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passive Tap"
+          }
+        }
+      }
+    },
+    "Permissions" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permissions"
+          }
+        }
+      }
+    },
+    "Playback Interface" : {
+      "comment" : "Source interface picker label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playback Interface"
+          }
+        }
+      }
+    },
+    "Preferred Buffer Size" : {
+      "comment" : "Settings picker label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preferred Buffer Size"
+          }
+        }
+      }
+    },
+    "Preset" : {
+      "comment" : "Menu bar preset picker label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preset"
+          }
+        }
+      }
+    },
+    "Presets" : {
+      "comment" : "Sidebar section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        }
+      }
+    },
+    "Privacy Settings…" : {
+      "comment" : "Inspector button to open Privacy settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Settings…"
+          }
+        }
+      }
+    },
+    "Privacy…" : {
+      "comment" : "Popover privacy settings button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy…"
+          }
+        }
+      }
+    },
+    "Private Monitor Bridge" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Monitor Bridge"
+          }
+        }
+      }
+    },
+    "Process Scope" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Process Scope"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "comment" : "Menu bar quit button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
+          }
+        }
+      }
+    },
+    "Quit Interceptor" : {
+      "comment" : "Menu bar action row to quit application",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit Interceptor"
+          }
+        }
+      }
+    },
+    "Ready" : {
+      "comment" : "Permission granted status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ready"
+          }
+        }
+      }
+    },
+    "Refresh Audio Interfaces" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh Audio Interfaces"
+          }
+        }
+      }
+    },
+    "Refresh Core Audio interfaces and active applications (⇧⌘R)" : {
+
+    },
+    "Refresh Interfaces" : {
+      "comment" : "Toolbar refresh button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh Interfaces"
+          }
+        }
+      }
+    },
+    "Remove %@" : {
+
+    },
+    "Remove Channel" : {
+      "comment" : "Tooltip for remove channel button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Channel"
+          }
+        }
+      }
+    },
+    "Remove Route" : {
+      "comment" : "Route remove button tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Route"
+          }
+        }
+      }
+    },
+    "Rename" : {
+      "comment" : "Rename dialog confirm button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename"
+          }
+        }
+      }
+    },
+    "Rename Preset" : {
+      "comment" : "Rename dialog title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Preset"
+          }
+        }
+      }
+    },
+    "Required" : {
+      "comment" : "Permission required status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Required"
+          }
+        }
+      }
+    },
+    "Reset 0.0 dB" : {
+      "comment" : "Trim popover reset button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset 0.0 dB"
+          }
+        }
+      }
+    },
+    "Reset Volume to 0.0 dB" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Volume to 0.0 dB"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "comment" : "Banner retry button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        }
+      }
+    },
+    "Retry Now" : {
+      "comment" : "Waiting banner retry button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry Now"
+          }
+        }
+      }
+    },
+    "Same interface selected for source and destination. Use distinct channels to avoid double monitoring." : {
+      "comment" : "Warning when source and destination share the same interface",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Same interface selected for source and destination. Use distinct channels to avoid double monitoring."
+          }
+        }
+      }
+    },
+    "Sample Rate Conv." : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sample Rate Conv."
+          }
+        }
+      }
+    },
+    "Save Current as Preset…" : {
+      "comment" : "File menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Current as Preset…"
+          }
+        }
+      }
+    },
+    "Save Current Preset" : {
+      "comment" : "Sidebar button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Current Preset"
+          }
+        }
+      }
+    },
+    "Save Monitoring Preset" : {
+      "comment" : "Save preset sheet title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Monitoring Preset"
+          }
+        }
+      }
+    },
+    "Save Preset" : {
+      "comment" : "Save preset confirm button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Preset"
+          }
+        }
+      }
+    },
+    "Save your source, monitor interface, and channel routes for instant recall." : {
+      "comment" : "Sidebar presets empty state subtitle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save your source, monitor interface, and channel routes for instant recall."
+          }
+        }
+      }
+    },
+    "Saved Presets" : {
+      "comment" : "Manage presets sheet title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved Presets"
+          }
+        }
+      }
+    },
+    "Scope:" : {
+      "comment" : "Source card process scope label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scope:"
+          }
+        }
+      }
+    },
+    "Self-Feedback Guard" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Self-Feedback Guard"
+          }
+        }
+      }
+    },
+    "Settings…" : {
+      "comment" : "Menu bar action row to open Settings window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        }
+      }
+    },
+    "Show audio bridge clock and latency info (⌘I)" : {
+
+    },
+    "Show Bridge Info" : {
+      "comment" : "Menu command to show bridge info",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Bridge Info"
+          }
+        }
+      }
+    },
+    "Show Inspector" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Inspector"
+          }
+        }
+      }
+    },
+    "Signal Integrity" : {
+      "comment" : "Inspector section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signal Integrity"
+          }
+        }
+      }
+    },
+    "Signal Path" : {
+      "comment" : "Bridge Info popover signal transparency label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signal Path"
+          }
+        }
+      }
+    },
+    "Source" : {
+      "comment" : "Signal path source column header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source"
+          }
+        }
+      }
+    },
+    "Source (Passive Tap)" : {
+      "comment" : "Form section header for source interface",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source (Passive Tap)"
+          }
+        }
+      }
+    },
+    "Source Access" : {
+      "comment" : "Inspector label for source exclusivity status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Access"
+          }
+        }
+      }
+    },
+    "Source Exclusivity" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Exclusivity"
+          }
+        }
+      }
+    },
+    "Source Interface" : {
+      "comment" : "Form section header for source interface",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Interface"
+          }
+        }
+      }
+    },
+    "Source Output Interface" : {
+      "comment" : "Source device card title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Output Interface"
+          }
+        }
+      }
+    },
+    "Source Rate" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Rate"
+          }
+        }
+      }
+    },
+    "Standby" : {
+      "comment" : "Drift compensation standby value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standby"
+          }
+        }
+      }
+    },
+    "Start Bridge" : {
+      "comment" : "Menu command to start selected bridge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Bridge"
+          }
+        }
+      }
+    },
+    "Start Interception" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Interception"
+          }
+        }
+      }
+    },
+    "Start interception automatically when switching presets" : {
+      "comment" : "Settings toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start interception automatically when switching presets"
+          }
+        }
+      }
+    },
+    "Start or stop passive audio interception (⌘R)" : {
+
+    },
+    "Status" : {
+      "comment" : "Inspector permission status row label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "comment" : "Primary toolbar stop button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop"
+          }
+        }
+      }
+    },
+    "Stop All Bridges" : {
+      "comment" : "Menu command to stop all active bridges",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop All Bridges"
+          }
+        }
+      }
+    },
+    "Stop Bridge" : {
+      "comment" : "Menu command to stop selected bridge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop Bridge"
+          }
+        }
+      }
+    },
+    "Stop Interception" : {
+      "comment" : "Menu command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop Interception"
+          }
+        }
+      }
+    },
+    "System Audio Recording" : {
+      "comment" : "Settings row label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System Audio Recording"
+          }
+        }
+      }
+    },
+    "System Audio Recording Permission Required" : {
+      "comment" : "Permission banner title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System Audio Recording Permission Required"
+          }
+        }
+      }
+    },
+    "System Permission" : {
+      "comment" : "Inspector section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System Permission"
+          }
+        }
+      }
+    },
+    "Tap Integrity" : {
+      "comment" : "LabeledContent key for tap non-exclusivity status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap Integrity"
+          }
+        }
+      }
+    },
+    "Tap Mode" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap Mode"
+          }
+        }
+      }
+    },
+    "Tapped Streams" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapped Streams"
+          }
+        }
+      }
+    },
+    "Unity (Bit-Transparent)" : {
+      "comment" : "Bridge Info unity pass-through value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unity (Bit-Transparent)"
+          }
+        }
+      }
+    },
+    "Unmuted · Non-Exclusive" : {
+      "comment" : "Tap mode concise summary",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unmuted · Non-Exclusive"
+          }
+        }
+      }
+    },
+    "Untitled Channel" : {
+      "comment" : "Fallback label when channel name is empty",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled Channel"
+          }
+        }
+      }
+    },
+    "Uses macOS System Audio Recording Only (separate from Screen Recording)." : {
+      "comment" : "Inspector permission description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uses macOS System Audio Recording Only (separate from Screen Recording)."
+          }
+        }
+      }
+    },
+    "Virtual Devices" : {
+      "comment" : "Sidebar section title listing virtual audio bridges",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Virtual Devices"
+          }
+        }
+      }
+    },
+    "Waiting for %@" : {
+
+    },
+    "Waiting for device" : {
+
+    },
+    "XRuns" : {
+      "comment" : "Inspector short label for XRuns counter",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "XRuns"
+          }
+        }
+      }
+    },
+    "XRuns / Dropouts" : {
+      "comment" : "Inspector metric label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "XRuns / Dropouts"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

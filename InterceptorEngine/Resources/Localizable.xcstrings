@@ -1,0 +1,351 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "AVB": {
+      "comment": "Core Audio AVB transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVB"
+          }
+        }
+      }
+    },
+    "Aggregate": {
+      "comment": "Core Audio transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggregate"
+          }
+        }
+      }
+    },
+    "All Processes": {
+      "comment": "Short process tap scope description",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Processes"
+          }
+        }
+      }
+    },
+    "All Processes (Device Stream)": {
+      "comment": "Default process tap scope",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Processes (Device Stream)"
+          }
+        }
+      }
+    },
+    "Audio Error": {
+      "comment": "Engine error status",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Error"
+          }
+        }
+      }
+    },
+    "Audio Interface": {
+      "comment": "Generic Core Audio transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Interface"
+          }
+        }
+      }
+    },
+    "Audio interface \"%@\" does not expose any output streams.": {},
+    "Bluetooth": {
+      "comment": "Core Audio Bluetooth transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth"
+          }
+        }
+      }
+    },
+    "Built-in": {
+      "comment": "Core Audio Built-in transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in"
+          }
+        }
+      }
+    },
+    "Destination channel %lld exceeds available output channels (%lld).": {
+      "comment": "Route validation error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination channel %lld exceeds available output channels (%lld)."
+          }
+        }
+      }
+    },
+    "DisplayPort": {
+      "comment": "Core Audio DisplayPort transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DisplayPort"
+          }
+        }
+      }
+    },
+    "Failed to create passive Core Audio tap (OSStatus %d).": {},
+    "Failed to create private monitor bridge aggregate device (OSStatus %d).": {},
+    "Failed to register real-time audio callback (OSStatus %d).": {},
+    "Failed to start monitor audio bridge (OSStatus %d).": {},
+    "HDMI": {
+      "comment": "Core Audio HDMI transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDMI"
+          }
+        }
+      }
+    },
+    "Intercepting": {
+      "comment": "Engine active status",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercepting"
+          }
+        }
+      }
+    },
+    "Monitor Interface": {
+      "comment": "Destination device role",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitor Interface"
+          }
+        }
+      }
+    },
+    "Monitor audio interface \"%@\" is not currently connected.": {},
+    "Mono": {
+      "comment": "Mono channel route mode",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mono"
+          }
+        }
+      }
+    },
+    "Network": {
+      "comment": "Core Audio Network transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network"
+          }
+        }
+      }
+    },
+    "No Destination": {
+      "comment": "Preset summary fallback when destination is unset",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Destination"
+          }
+        }
+      }
+    },
+    "No Source": {
+      "comment": "Preset summary fallback when source is unset",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Source"
+          }
+        }
+      }
+    },
+    "PCIe": {
+      "comment": "Core Audio PCIe transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PCIe"
+          }
+        }
+      }
+    },
+    "Permission Required": {
+      "comment": "Engine status when System Audio Recording permission is needed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission Required"
+          }
+        }
+      }
+    },
+    "Source Interface": {
+      "comment": "Source device role",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Interface"
+          }
+        }
+      }
+    },
+    "Source and destination both target channel %lld on the same interface. Interceptor excludes its own process from the tap, but double monitoring may occur.": {
+      "comment": "Same-device channel overlap warning",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source and destination both target channel %lld on the same interface. Interceptor excludes its own process from the tap, but double monitoring may occur."
+          }
+        }
+      }
+    },
+    "Source audio interface \"%@\" is not currently connected.": {},
+    "Source channel %lld exceeds available output channels (%lld).": {
+      "comment": "Route validation error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source channel %lld exceeds available output channels (%lld)."
+          }
+        }
+      }
+    },
+    "Standby": {
+      "comment": "Engine idle status",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standby"
+          }
+        }
+      }
+    },
+    "Starting…": {
+      "comment": "Engine starting status",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting…"
+          }
+        }
+      }
+    },
+    "System Audio Recording permission is required to passively tap audio output streams. Enable Interceptor in System Settings → Privacy & Security → System Audio Recording Only.": {},
+    "The private monitor bridge reported no active audio streams.": {},
+    "Thunderbolt": {
+      "comment": "Core Audio Thunderbolt transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thunderbolt"
+          }
+        }
+      }
+    },
+    "USB": {
+      "comment": "Core Audio USB transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB"
+          }
+        }
+      }
+    },
+    "Virtual": {
+      "comment": "Core Audio Virtual transport type",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virtual"
+          }
+        }
+      }
+    },
+    "Waiting for %@": {
+      "comment": "Engine status when waiting for disconnected audio device",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %@"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

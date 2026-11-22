@@ -1,0 +1,114 @@
+import Foundation
+
+/// Defines a single discrete mono channel-to-channel patch from a tapped source output
+/// channel (`1...N`) to a monitor destination output channel (`1...M`).
+/// Signal pass-through is strictly unity gain (bit-transparent when 1-to-1).
+public struct ChannelRoute: Codable, Sendable, Hashable, Identifiable {
+    public static let maxChannelLimit = 64
+
+    public var id: UUID
+    public var label: String
+    public var isEnabled: Bool
+    /// 1-based discrete output channel on the tapped source interface.
+    public var sourceChannel: Int
+    /// 1-based discrete output channel on the monitor destination interface.
+    public var destinationChannel: Int
+
+    public init(
+        id: UUID = UUID(),
+        label: String = "Channel 1",
+        isEnabled: Bool = true,
+        sourceChannel: Int = 1,
+        destinationChannel: Int = 1
+    ) {
+        self.id = id
+        self.label = label
+        self.isEnabled = isEnabled
+        self.sourceChannel = max(1, sourceChannel)
+        self.destinationChannel = max(1, destinationChannel)
+    }
+
+    public var sourceChannelDescription: String { "Ch \(sourceChannel)" }
+    public var destinationChannelDescription: String { "Out \(destinationChannel)" }
+}
+
+/// Validation diagnostics for a `ChannelRoute` against currently selected source and destination interfaces.
+public enum RouteValidationIssue: Sendable, Equatable, Hashable {
+    case sourceChannelOutOfRange(requested: Int, available: Int)
+    case destinationChannelOutOfRange(requested: Int, available: Int)
+    case sameDeviceChannelOverlap(channel: Int)
+
+    public var isWarningOnly: Bool {
+        switch self {
+        case .sameDeviceChannelOverlap: true
+        case .sourceChannelOutOfRange, .destinationChannelOutOfRange: false
+        }
+    }
+
+    public var localizedMessage: String {
+        switch self {
+        case let .sourceChannelOutOfRange(requested, available):
+            return String(
+                localized: "Source channel \(requested) exceeds available output channels (\(available)).",
+                bundle: .interceptorEngine
+            )
+        case let .destinationChannelOutOfRange(requested, available):
+            return String(
+                localized: "Destination channel \(requested) exceeds available output channels (\(available)).",
+                bundle: .interceptorEngine
+            )
+        case let .sameDeviceChannelOverlap(channel):
+            return String(
+                localized: "Source and destination both target channel \(channel) on the same interface. Interceptor excludes its own process from the tap, but double monitoring may occur.",
+                bundle: .interceptorEngine
+            )
+        }
+    }
+}
+
+/// Pure route validation helper for discrete mono channel patches.
+public enum RouteValidator {
+    public static func validate(
+        routes: [ChannelRoute],
+        sourceDevice: AudioDeviceDescriptor?,
+        destinationDevice: AudioDeviceDescriptor?
+    ) -> [UUID: [RouteValidationIssue]] {
+        var results: [UUID: [RouteValidationIssue]] = [:]
+        let sameDevice: Bool = {
+            guard let src = sourceDevice?.uid, let dst = destinationDevice?.uid else { return false }
+            return src == dst
+        }()
+
+        for route in routes {
+            var issues: [RouteValidationIssue] = []
+
+            if let src = sourceDevice, route.sourceChannel > src.totalOutputChannels {
+                issues.append(
+                    .sourceChannelOutOfRange(
+                        requested: route.sourceChannel,
+                        available: src.totalOutputChannels
+                    )
+                )
+            }
+
+            if let dst = destinationDevice, route.destinationChannel > dst.totalOutputChannels {
+                issues.append(
+                    .destinationChannelOutOfRange(
+                        requested: route.destinationChannel,
+                        available: dst.totalOutputChannels
+                    )
+                )
+            }
+
+            if sameDevice && route.sourceChannel == route.destinationChannel {
+                issues.append(.sameDeviceChannelOverlap(channel: route.sourceChannel))
+            }
+
+            if !issues.isEmpty {
+                results[route.id] = issues
+            }
+        }
+
+        return results
+    }
+}
