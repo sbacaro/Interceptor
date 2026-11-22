@@ -83,6 +83,16 @@ struct MenuBarPopoverView: View {
                     appDelegate.showMainWindow(openSettings: false)
                 }
 
+                MenuBarActionRow(
+                    title: "Events…",
+                    shortcut: "⌘E",
+                    badgeCount: viewModel.engine.eventLog.totalUnreadProblemCount,
+                    badgeColor: viewModel.engine.eventLog.highestUnreadSeverity == .error ? .red : .orange
+                ) {
+                    appDelegate.openEventsWindowAction = { openWindow(id: "events") }
+                    appDelegate.showEventsWindow()
+                }
+
                 MenuBarActionRow(title: "Settings…", shortcut: "⌘,") {
                     appDelegate.openMainWindowAction = { openWindow(id: "main") }
                     appDelegate.showMainWindow(openSettings: true)
@@ -102,6 +112,7 @@ struct MenuBarPopoverView: View {
         .onAppear {
             appDelegate.viewModel = viewModel
             appDelegate.openMainWindowAction = { openWindow(id: "main") }
+            appDelegate.openEventsWindowAction = { openWindow(id: "events") }
         }
     }
 
@@ -237,6 +248,8 @@ private struct MenuBarActionRow: View {
     let title: LocalizedStringKey
     let shortcut: String?
     var isHighlighted: Bool = false
+    var badgeCount: Int = 0
+    var badgeColor: Color = .orange
     let action: () -> Void
 
     @State private var isHovering = false
@@ -248,6 +261,17 @@ private struct MenuBarActionRow: View {
                     .font(isHighlighted ? .callout.weight(.semibold) : .callout)
                     .foregroundStyle(isHighlighted ? Color("AccentColor") : .primary)
                 Spacer()
+                if badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            Capsule()
+                                .fill(badgeColor)
+                        )
+                }
                 if let shortcut {
                     Text(shortcut)
                         .font(.caption)

@@ -101,6 +101,8 @@ struct MainWindowView: View {
                     }
                 }
 
+                eventsToolbarButton
+
                 Button {
                     viewModel.isSettingsPresented = true
                 } label: {
@@ -115,7 +117,9 @@ struct MainWindowView: View {
             }
         )
         .onAppear {
+            appDelegate.viewModel = viewModel
             appDelegate.openMainWindowAction = { openWindow(id: "main") }
+            appDelegate.openEventsWindowAction = { openWindow(id: "events") }
             viewModel.setMainWindowVisible(true)
         }
         .onDisappear {
@@ -125,6 +129,49 @@ struct MainWindowView: View {
             SettingsView(viewModel: viewModel)
                 .tint(Color("AccentColor"))
         }
+    }
+
+    private var eventsToolbarButton: some View {
+        let eventLog = viewModel.engine.eventLog
+        let unreadTotal = eventLog.totalUnreadProblemCount
+        let unreadErrors = eventLog.unreadErrorCount
+        let unreadWarnings = eventLog.unreadWarningCount
+        let badgeColor: Color = eventLog.highestUnreadSeverity == .error ? .red : .orange
+
+        return Button {
+            appDelegate.viewModel = viewModel
+            appDelegate.openEventsWindowAction = { openWindow(id: "events") }
+            appDelegate.showEventsWindow()
+        } label: {
+            Label(
+                "Events",
+                systemImage: unreadTotal > 0 ? "exclamationmark.triangle.fill" : "list.bullet.rectangle"
+            )
+            .foregroundStyle(unreadTotal > 0 ? badgeColor : .primary)
+        }
+        .help(eventsToolbarTooltip(errors: unreadErrors, warnings: unreadWarnings))
+    }
+
+    private func eventsToolbarTooltip(errors: Int, warnings: Int) -> String {
+        let base = String(localized: "Open diagnostic events log (⌘E)")
+        guard errors > 0 || warnings > 0 else { return base }
+
+        var parts: [String] = []
+        if errors > 0 {
+            parts.append(
+                errors == 1
+                    ? String(localized: "1 unread error")
+                    : String(localized: "\(errors) unread errors")
+            )
+        }
+        if warnings > 0 {
+            parts.append(
+                warnings == 1
+                    ? String(localized: "1 unread warning")
+                    : String(localized: "\(warnings) unread warnings")
+            )
+        }
+        return "\(base) — \(parts.joined(separator: ", "))"
     }
 
     private func shouldShowBanner(for state: EngineState) -> Bool {

@@ -20,6 +20,16 @@ struct InterceptorApp: App {
             InterceptorCommands(viewModel: viewModel, appDelegate: appDelegate)
         }
 
+        Window("Events", id: "events") {
+            EventsWindowView(viewModel: viewModel, appDelegate: appDelegate)
+                .tint(Color("AccentColor"))
+                .onAppear {
+                    appDelegate.viewModel = viewModel
+                }
+        }
+        .defaultSize(width: 740, height: 420)
+        .windowToolbarStyle(.unified(showsTitle: true))
+
         MenuBarExtra {
             MenuBarPopoverView(viewModel: viewModel, appDelegate: appDelegate)
                 .tint(Color("AccentColor"))
@@ -123,6 +133,14 @@ struct InterceptorCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: .command)
             .disabled(viewModel.selectedBridge == nil)
+
+            Divider()
+
+            Button("Events") {
+                appDelegate.viewModel = viewModel
+                appDelegate.showEventsWindow()
+            }
+            .keyboardShortcut("e", modifiers: .command)
         }
     }
 }

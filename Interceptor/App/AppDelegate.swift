@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 
 /// AppKit delegate managing:
-/// - Dock visibility lifecycle: closes to Menu Bar (`.accessory`) when the main window closes,
-///   and restores Dock presence (`.regular`) when reopened from the Menu Bar or Applications.
+/// - Multi-window Dock visibility lifecycle: closes to Menu Bar (`.accessory`) only when both
+///   the Main and Events windows are closed, and restores Dock presence (`.regular`) when reopened.
 /// - Deterministic Core Audio teardown on app termination.
 /// - Clean top macOS menu bar by pruning unused `Edit`, `Format`, and `View` top-level menus.
 @MainActor
@@ -13,8 +13,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Closure registered by SwiftUI (`openWindow(id: "main")`) to reopen the primary window.
     var openMainWindowAction: (() -> Void)?
 
+    /// Closure registered by SwiftUI (`openWindow(id: "events")`) to reopen the diagnostic Events window.
+    var openEventsWindowAction: (() -> Void)?
+
+    var activeEventsWindow: NSWindow? {
+        eventsWindow
+    }
+
     private weak var mainWindow: NSWindow?
     private var mainWindowObservers: [NSObjectProtocol] = []
+    private weak var eventsWindow: NSWindow?
+    private var eventsWindowObservers: [NSObjectProtocol] = []
     private var mainMenuObserver: NSObjectProtocol?
     private var pendingAccessoryTransition = false
 
@@ -33,21 +42,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pruneUnusedTopLevelMenus()
         viewModel?.refreshLaunchAtLoginStatus()
         syncMainWindowVisibility()
+        syncEventsWindowVisibility()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Closing the window keeps Interceptor alive in the Menu Bar so active audio bridges stay uninterrupted.
+        // Closing all windows keeps Interceptor alive in the Menu Bar so active audio bridges stay uninterrupted.
         false
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Reopening Interceptor from /Applications, Spotlight, or a pinned Dock icon restores the main window.
-        showMainWindow(openSettings: false)
-        return false
+        // Reopening Interceptor from /Applications, Spotlight, or a pinned Dock icon restores the main window
+        // when no visible window is already on screen.
+        if !flag {
+            showMainWindow(openSettings: false)
+            return false
+        }
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        removeMainWindowObservers()
+        removeObservers(&mainWindowObservers)
+        removeObservers(&eventsWindowObservers)
         if let observer = mainMenuObserver {
             NotificationCenter.default.removeObserver(observer)
             mainMenuObserver = nil
@@ -62,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func registerMainWindow(_ window: NSWindow) {
         pendingAccessoryTransition = false
         if mainWindow !== window {
-            removeMainWindowObservers()
+            removeObservers(&mainWindowObservers)
             mainWindow = window
 
             let nc = NotificationCenter.default
@@ -90,19 +105,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ]
         }
 
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-            pruneUnusedTopLevelMenus()
-        }
+        ensureRegularActivationPolicy()
         syncMainWindowVisibility()
+    }
+
+    /// Registers the dedicated diagnostic Events window so we observe its lifecycle events
+    /// and sync `eventLog.isEventsWindowVisible` plus multi-window Dock visibility.
+    func registerEventsWindow(_ window: NSWindow) {
+        pendingAccessoryTransition = false
+        if eventsWindow !== window {
+            removeObservers(&eventsWindowObservers)
+            eventsWindow = window
+
+            let nc = NotificationCenter.default
+            eventsWindowObservers = [
+                nc.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.handleEventsWindowWillClose()
+                    }
+                },
+                nc.addObserver(forName: NSWindow.willMiniaturizeNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.viewModel?.engine.eventLog.isEventsWindowVisible = false
+                    }
+                },
+                nc.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.syncEventsWindowVisibility()
+                    }
+                },
+                nc.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.syncEventsWindowVisibility()
+                    }
+                },
+                nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.syncEventsWindowVisibility()
+                    }
+                }
+            ]
+        }
+
+        ensureRegularActivationPolicy()
+        syncEventsWindowVisibility()
     }
 
     /// Restores Dock presence, opens or focuses the main window, and optionally presents the Settings sheet.
     func showMainWindow(openSettings: Bool = false) {
         pendingAccessoryTransition = false
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
+        ensureRegularActivationPolicy()
 
         if let openMainWindowAction {
             openMainWindowAction()
@@ -128,6 +180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.pruneUnusedTopLevelMenus()
             if let window = self.mainWindow {
+                if window.isMiniaturized {
+                    window.deminiaturize(nil)
+                }
                 window.makeKeyAndOrderFront(nil)
             }
             NSApp.activate()
@@ -135,6 +190,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if openSettings {
                 self.viewModel?.isSettingsPresented = true
             }
+        }
+    }
+
+    /// Restores Dock presence if needed and opens or focuses the dedicated Events diagnostic window (`⌘E`).
+    func showEventsWindow() {
+        pendingAccessoryTransition = false
+        ensureRegularActivationPolicy()
+
+        if let openEventsWindowAction {
+            openEventsWindowAction()
+        }
+
+        if let window = eventsWindow {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        NSApp.activate()
+        pruneUnusedTopLevelMenus()
+        viewModel?.engine.eventLog.isEventsWindowVisible = true
+
+        // Follow up on the next runloop turn after `.accessory -> .regular` or first-open to ensure key focus.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pruneUnusedTopLevelMenus()
+            if let window = self.eventsWindow {
+                if window.isMiniaturized {
+                    window.deminiaturize(nil)
+                }
+                window.makeKeyAndOrderFront(nil)
+            }
+            NSApp.activate()
+            self.syncEventsWindowVisibility()
+        }
+    }
+
+    private func ensureRegularActivationPolicy() {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+            pruneUnusedTopLevelMenus()
         }
     }
 
@@ -149,30 +246,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel?.setMainWindowVisible(visibleOnScreen)
     }
 
+    private func syncEventsWindowVisibility() {
+        guard let window = eventsWindow else {
+            viewModel?.engine.eventLog.isEventsWindowVisible = false
+            return
+        }
+        let visibleOnScreen = window.isVisible &&
+            !window.isMiniaturized &&
+            (window.occlusionState.contains(.visible) || window.isKeyWindow)
+        viewModel?.engine.eventLog.isEventsWindowVisible = visibleOnScreen
+    }
+
     private func handleMainWindowWillClose() {
         viewModel?.setMainWindowVisible(false)
         viewModel?.isSettingsPresented = false
         viewModel?.isBridgeInfoPresented = false
+        scheduleAccessoryPolicyTransitionIfNoWindowsVisible()
+    }
+
+    private func handleEventsWindowWillClose() {
+        viewModel?.engine.eventLog.isEventsWindowVisible = false
+        scheduleAccessoryPolicyTransitionIfNoWindowsVisible()
+    }
+
+    private func scheduleAccessoryPolicyTransitionIfNoWindowsVisible() {
         pendingAccessoryTransition = true
 
-        // Switch to accessory policy on the next runloop tick so the window finishes closing cleanly
-        // and disappears from the Dock (unless pinned there by the user).
+        // Switch to accessory policy on the next runloop tick only if neither Main nor Events remains visible,
+        // so closing the Main window while Events is open keeps the app in the Dock.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.pendingAccessoryTransition else { return }
             self.pendingAccessoryTransition = false
             let mainVisible = self.mainWindow?.isVisible == true
-            if !mainVisible && NSApp.activationPolicy() != .accessory {
+            let eventsVisible = self.eventsWindow?.isVisible == true
+            if !mainVisible && !eventsVisible && NSApp.activationPolicy() != .accessory {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
     }
 
-    private func removeMainWindowObservers() {
+    private func removeObservers(_ observers: inout [NSObjectProtocol]) {
         let nc = NotificationCenter.default
-        for observer in mainWindowObservers {
+        for observer in observers {
             nc.removeObserver(observer)
         }
-        mainWindowObservers.removeAll()
+        observers.removeAll()
     }
 
     private func installMainMenuObserver() {

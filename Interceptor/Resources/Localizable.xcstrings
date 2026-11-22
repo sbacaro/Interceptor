@@ -40,8 +40,140 @@
         }
       }
     },
+    "%lld errors" : {
+      "comment" : "Events footer error count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld errors"
+          }
+        }
+      }
+    },
+    "%lld events" : {
+      "comment" : "Events footer total count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld events"
+          }
+        }
+      }
+    },
+    "%lld of %lld events" : {
+      "comment" : "Events footer filtered count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld events"
+          }
+        }
+      }
+    },
+    "%lld unread errors" : {
+      "comment" : "Events toolbar tooltip unread error count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld unread errors"
+          }
+        }
+      }
+    },
+    "%lld unread warnings" : {
+      "comment" : "Events toolbar tooltip unread warning count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld unread warnings"
+          }
+        }
+      }
+    },
+    "%lld warnings" : {
+      "comment" : "Events footer warning count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld warnings"
+          }
+        }
+      }
+    },
     "%lld%%" : {
 
+    },
+    "1 error" : {
+      "comment" : "Events footer singular error count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 error"
+          }
+        }
+      }
+    },
+    "1 event" : {
+      "comment" : "Events footer singular event count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 event"
+          }
+        }
+      }
+    },
+    "1 unread error" : {
+      "comment" : "Events toolbar tooltip singular unread error count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 unread error"
+          }
+        }
+      }
+    },
+    "1 unread warning" : {
+      "comment" : "Events toolbar tooltip singular unread warning count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 unread warning"
+          }
+        }
+      }
+    },
+    "1 warning" : {
+      "comment" : "Events footer singular warning count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 warning"
+          }
+        }
+      }
     },
     "64 frames" : {
 
@@ -166,6 +298,18 @@
         }
       }
     },
+    "All" : {
+      "comment" : "Events severity filter pill for all events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All"
+          }
+        }
+      }
+    },
     "All Processes" : {
       "comment" : "Default process filter short label",
       "extractionState" : "manual",
@@ -186,6 +330,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "All Processes (Device Stream)"
+          }
+        }
+      }
+    },
+    "All Sources" : {
+      "comment" : "Events source filter option showing all sources",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Sources"
           }
         }
       }
@@ -457,6 +613,30 @@
     "Checking…" : {
 
     },
+    "Clear" : {
+      "comment" : "Events toolbar button to clear session events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        }
+      }
+    },
+    "Clear all recorded session events" : {
+      "comment" : "Events Clear button tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear all recorded session events"
+          }
+        }
+      }
+    },
     "Clear Clip Indicators" : {
       "comment" : "Menu command to reset clip indicators",
       "extractionState" : "manual",
@@ -465,6 +645,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clear Clip Indicators"
+          }
+        }
+      }
+    },
+    "Clear search" : {
+      "comment" : "Accessibility label for search clear button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear search"
           }
         }
       }
@@ -510,6 +702,78 @@
     },
     "Closing the window keeps Interceptor active in the Menu Bar." : {
 
+    },
+    "Copied" : {
+      "comment" : "Events toolbar confirmation label after copying",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "comment" : "Events toolbar button to copy visible events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        }
+      }
+    },
+    "Copy Event Line" : {
+      "comment" : "Events table context menu action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Event Line"
+          }
+        }
+      }
+    },
+    "Copy Message" : {
+      "comment" : "Events table context menu action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Message"
+          }
+        }
+      }
+    },
+    "Copy Selected Events" : {
+      "comment" : "Events table context menu action for multiple rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Selected Events"
+          }
+        }
+      }
+    },
+    "Copy visible events to clipboard" : {
+      "comment" : "Events Copy button tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy visible events to clipboard"
+          }
+        }
+      }
     },
     "Core Audio SubTap Drift Compensation bridges clock domains automatically without adding your source interface to an aggregate device." : {
       "comment" : "Monitor Destination section footer",
@@ -597,6 +861,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Device Name"
+          }
+        }
+      }
+    },
+    "Diagnostic events for bridges, interfaces, clock sync, and updates will appear here during your session." : {
+      "comment" : "Events empty state description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnostic events for bridges, interfaces, clock sync, and updates will appear here during your session."
           }
         }
       }
@@ -733,6 +1009,77 @@
         }
       }
     },
+    "Errors" : {
+      "comment" : "Events severity filter pill for error events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Errors"
+          }
+        }
+      }
+    },
+    "Events" : {
+      "comment" : "Events diagnostic window title, menu command, and toolbar button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Events"
+          }
+        }
+      }
+    },
+    "Events…" : {
+      "comment" : "Menu bar action row to open Events window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Events…"
+          }
+        }
+      }
+    },
+    "Export Events" : {
+      "comment" : "Save panel title for exporting events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Events"
+          }
+        }
+      }
+    },
+    "Export visible events to a .log file" : {
+      "comment" : "Events Export button tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export visible events to a .log file"
+          }
+        }
+      }
+    },
+    "Export…" : {
+      "comment" : "Events toolbar button to export events to file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export…"
+          }
+        }
+      }
+    },
     "Feedback Guard" : {
       "comment" : "Inspector label for self-feedback prevention",
       "extractionState" : "manual",
@@ -741,6 +1088,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Feedback Guard"
+          }
+        }
+      }
+    },
+    "Filter events by source" : {
+      "comment" : "Events source picker tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter events by source"
           }
         }
       }
@@ -780,6 +1139,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hide Inspector"
+          }
+        }
+      }
+    },
+    "Info" : {
+      "comment" : "Events severity filter pill for informational events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Info"
           }
         }
       }
@@ -859,6 +1230,18 @@
         }
       }
     },
+    "Live · Monitoring active bridges" : {
+      "comment" : "Events footer live status indicator",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live · Monitoring active bridges"
+          }
+        }
+      }
+    },
     "Manage Presets…" : {
       "comment" : "Presets menu management action",
       "extractionState" : "manual",
@@ -891,6 +1274,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Matched"
+          }
+        }
+      }
+    },
+    "Message" : {
+      "comment" : "Events table message column header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message"
           }
         }
       }
@@ -1111,6 +1506,42 @@
         }
       }
     },
+    "No Events Recorded" : {
+      "comment" : "Events empty state title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Events Recorded"
+          }
+        }
+      }
+    },
+    "No events match the current severity, source, or search filter." : {
+      "comment" : "Events filtered empty state description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No events match the current severity, source, or search filter."
+          }
+        }
+      }
+    },
+    "No Matching Events" : {
+      "comment" : "Events filtered empty state title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Matching Events"
+          }
+        }
+      }
+    },
     "No Output Interfaces Found" : {
       "comment" : "Picker fallback when no output interfaces exist",
       "extractionState" : "manual",
@@ -1161,6 +1592,18 @@
     },
     "Notes" : {
 
+    },
+    "Open diagnostic events log (⌘E)" : {
+      "comment" : "Toolbar tooltip for Events button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open diagnostic events log (⌘E)"
+          }
+        }
+      }
     },
     "Open Interceptor" : {
       "comment" : "Menu bar action row to reveal main window",
@@ -1528,6 +1971,18 @@
         }
       }
     },
+    "Reset Filters" : {
+      "comment" : "Events button to clear active filters",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Filters"
+          }
+        }
+      }
+    },
     "Reset Volume to 0.0 dB" : {
       "comment" : "Menu command",
       "extractionState" : "manual",
@@ -1680,6 +2135,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scope:"
+          }
+        }
+      }
+    },
+    "Search events…" : {
+      "comment" : "Events search field placeholder",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search events…"
           }
         }
       }
@@ -2029,6 +2496,29 @@
         }
       }
     },
+    "Time" : {
+      "comment" : "Events table time column header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time"
+          }
+        }
+      }
+    },
+    "Type" : {
+      "comment" : "Events table severity type column header",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type"
+          }
+        }
+      }
+    },
     "Unity (Bit-Transparent)" : {
       "comment" : "Bridge Info unity pass-through value",
       "extractionState" : "manual",
@@ -2106,6 +2596,18 @@
     },
     "Waiting for device" : {
 
+    },
+    "Warnings" : {
+      "comment" : "Events severity filter pill for warning events",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings"
+          }
+        }
+      }
     },
     "XRuns" : {
       "comment" : "Inspector short label for XRuns counter",

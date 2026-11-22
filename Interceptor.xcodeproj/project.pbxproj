@@ -29,6 +29,7 @@
 		75EB676384A07BBB985275EB /* InterceptorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D4E7215166AE556A4F4380; };
 		F66A90537755DF9E48F017A1 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBF0745A0F57E05A60ABF3F; };
 		698F8AE2DCEBDD7F0558DAFB /* BridgeSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C007BA9A971A4E9D88AB8539; };
+		AA1100090000000000000002 /* EventsWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1100090000000000000001; };
 		305C9639A0C20B3133B8C47E /* InterceptionActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BEFBAD215993396E171207; };
 		2DDA8EF5C15E8BD0395ABF68 /* InspectorTelemetryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132E64718553C443A40CBFB9; };
 		D16E24B27BA816D295592629 /* LevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75E5EC2E61DF4DEB0337ED5; };
@@ -100,6 +101,7 @@
 		67D4E7215166AE556A4F4380 /* InterceptorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InterceptorApp.swift"; sourceTree = "<group>"; };
 		3EBF0745A0F57E05A60ABF3F /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppViewModel.swift"; sourceTree = "<group>"; };
 		C007BA9A971A4E9D88AB8539 /* BridgeSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BridgeSidebarView.swift"; sourceTree = "<group>"; };
+		AA1100090000000000000001 /* EventsWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventsWindowView.swift"; sourceTree = "<group>"; };
 		13BEFBAD215993396E171207 /* InterceptionActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InterceptionActionButton.swift"; sourceTree = "<group>"; };
 		132E64718553C443A40CBFB9 /* InspectorTelemetryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InspectorTelemetryView.swift"; sourceTree = "<group>"; };
 		B75E5EC2E61DF4DEB0337ED5 /* LevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LevelMeterView.swift"; sourceTree = "<group>"; };
@@ -281,6 +283,7 @@
 			children = (
 				C007BA9A971A4E9D88AB8539 /* BridgeSidebarView.swift */,
 				FDD6CA0FA3632DCCF4F31A23 /* Components */,
+				AA1100090000000000000001 /* EventsWindowView.swift */,
 				132E64718553C443A40CBFB9 /* InspectorTelemetryView.swift */,
 				B75E5EC2E61DF4DEB0337ED5 /* LevelMeterView.swift */,
 				E1C5582F3AA32D581F2423FD /* MainWindowView.swift */,
@@ -506,6 +509,7 @@
 				75EB676384A07BBB985275EB,
 				F66A90537755DF9E48F017A1,
 				698F8AE2DCEBDD7F0558DAFB,
+				AA1100090000000000000002,
 				305C9639A0C20B3133B8C47E,
 				2DDA8EF5C15E8BD0395ABF68,
 				D16E24B27BA816D295592629,
