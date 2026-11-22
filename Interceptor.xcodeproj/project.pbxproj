@@ -41,7 +41,6 @@
 		CB3827B23A81AD6AE8D3CCFD /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = E3897FD5D956CB896F14D1F6; };
 		1E030CFEDF1C6ADB2703C6FC /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A80BE560C5A46C9500235D1B; };
 		159FBD74162E37A9D574873C /* InterceptorEngine.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEC5D1335C3F16FDCCF26958; };
-		3EAF406E04385FBAE9F8BDC0 /* InterceptorEngine.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BEC5D1335C3F16FDCCF26958; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A98402A5074171DBB3169B9B /* AtomicMeterBankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736383E4F0BA51C1F5E0F2E0; };
 		EDB43E1733380E17D1E44489 /* BridgeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB7103A2E9DAE2A5D4A8BAA; };
 		B24555DEAE9B74A8DDBAAF7C /* CoreAudioCatalogSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B9D62D9A7602DCC7B8C77D; };
@@ -67,20 +66,6 @@
 			remoteInfo = InterceptorEngine;
 		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		16DE0751DA9C11865B3880DE /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				3EAF406E04385FBAE9F8BDC0 /* InterceptorEngine.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		BEC5D1335C3F16FDCCF26958 /* InterceptorEngine.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = InterceptorEngine.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -363,7 +348,6 @@
 				66A0521C8D9B775B2B54F645 /* Sources */,
 				8BF6861F3F27C24F955466BC /* Frameworks */,
 				ACE1C3D4F78D8F18F863B63C /* Resources */,
-				16DE0751DA9C11865B3880DE /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -570,7 +554,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_LANGUAGE = en;
@@ -594,7 +578,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = "26.0";
-				MARKETING_VERSION = "1.0.0";
+				MARKETING_VERSION = "1.0.1";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -646,7 +630,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_LANGUAGE = en;
@@ -664,7 +648,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = "26.0";
-				MARKETING_VERSION = "1.0.0";
+				MARKETING_VERSION = "1.0.1";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -691,6 +675,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
+				MACH_O_TYPE = staticlib;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.interceptor.audio.engine";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
@@ -711,6 +696,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
+				MACH_O_TYPE = staticlib;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.interceptor.audio.engine";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
