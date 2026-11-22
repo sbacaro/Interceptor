@@ -16,6 +16,7 @@
 		40BA286D63155399961B2E05 /* AudioDeviceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5BB403908CE5E7D6378A52; };
 		D4B212C7DCC2FAB614D76914 /* ChannelRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 282D91087AB20D8AC8EA6D19; };
 		073BBBCF90365702A52B1121 /* EngineTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BBB7F75ED1E366D1F604B23; };
+		AA1100070000000000000002 /* EngineEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1100070000000000000001; };
 		513B9065DE5BC8E5D8F8A054 /* ProcessTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E106E14BBD7C8BB6CFE229; };
 		F5E9832B3EF836B05120E481 /* BridgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6971034FA610B2ADFB868D; };
 		C6370DB2F4C21584F572065E /* AtomicMeterBank.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F7C70BF1A4445F2861B852; };
@@ -47,6 +48,7 @@
 		159FBD74162E37A9D574873C /* InterceptorEngine.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEC5D1335C3F16FDCCF26958; };
 		A98402A5074171DBB3169B9B /* AtomicMeterBankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736383E4F0BA51C1F5E0F2E0; };
 		EDB43E1733380E17D1E44489 /* BridgeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB7103A2E9DAE2A5D4A8BAA; };
+		AA1100080000000000000002 /* EventLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1100080000000000000001; };
 		B24555DEAE9B74A8DDBAAF7C /* CoreAudioCatalogSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B9D62D9A7602DCC7B8C77D; };
 		1786AA708829CCE1101E2FAA /* LockFreeTripleBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 648EFB89F0C7177FECC30CAB; };
 		9610EB320D4B6EB3E2CBF592 /* RealTimeAudioProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 684E0A3850BA37C9AF2065BC; };
@@ -84,6 +86,7 @@
 		0E5BB403908CE5E7D6378A52 /* AudioDeviceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioDeviceDescriptor.swift"; sourceTree = "<group>"; };
 		282D91087AB20D8AC8EA6D19 /* ChannelRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChannelRoute.swift"; sourceTree = "<group>"; };
 		7BBB7F75ED1E366D1F604B23 /* EngineTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EngineTelemetry.swift"; sourceTree = "<group>"; };
+		AA1100070000000000000001 /* EngineEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EngineEvent.swift"; sourceTree = "<group>"; };
 		57E106E14BBD7C8BB6CFE229 /* ProcessTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessTarget.swift"; sourceTree = "<group>"; };
 		9F6971034FA610B2ADFB868D /* BridgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BridgeStore.swift"; sourceTree = "<group>"; };
 		B2F7C70BF1A4445F2861B852 /* AtomicMeterBank.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AtomicMeterBank.swift"; sourceTree = "<group>"; };
@@ -117,6 +120,7 @@
 		6329B216D0CFE91827C0CA6C /* Interceptor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Interceptor.entitlements"; sourceTree = "<group>"; };
 		736383E4F0BA51C1F5E0F2E0 /* AtomicMeterBankTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AtomicMeterBankTests.swift"; sourceTree = "<group>"; };
 		8BB7103A2E9DAE2A5D4A8BAA /* BridgeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BridgeStoreTests.swift"; sourceTree = "<group>"; };
+		AA1100080000000000000001 /* EventLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventLogTests.swift"; sourceTree = "<group>"; };
 		63B9D62D9A7602DCC7B8C77D /* CoreAudioCatalogSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoreAudioCatalogSmokeTests.swift"; sourceTree = "<group>"; };
 		648EFB89F0C7177FECC30CAB /* LockFreeTripleBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LockFreeTripleBufferTests.swift"; sourceTree = "<group>"; };
 		684E0A3850BA37C9AF2065BC /* RealTimeAudioProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RealTimeAudioProcessorTests.swift"; sourceTree = "<group>"; };
@@ -192,6 +196,7 @@
 				0E5BB403908CE5E7D6378A52 /* AudioDeviceDescriptor.swift */,
 				282D91087AB20D8AC8EA6D19 /* ChannelRoute.swift */,
 				7BBB7F75ED1E366D1F604B23 /* EngineTelemetry.swift */,
+				AA1100070000000000000001 /* EngineEvent.swift */,
 				57E106E14BBD7C8BB6CFE229 /* ProcessTarget.swift */,
 			);
 			path = "Models";
@@ -323,6 +328,7 @@
 			children = (
 				736383E4F0BA51C1F5E0F2E0 /* AtomicMeterBankTests.swift */,
 				8BB7103A2E9DAE2A5D4A8BAA /* BridgeStoreTests.swift */,
+				AA1100080000000000000001 /* EventLogTests.swift */,
 				63B9D62D9A7602DCC7B8C77D /* CoreAudioCatalogSmokeTests.swift */,
 				648EFB89F0C7177FECC30CAB /* LockFreeTripleBufferTests.swift */,
 				684E0A3850BA37C9AF2065BC /* RealTimeAudioProcessorTests.swift */,
@@ -481,6 +487,7 @@
 				40BA286D63155399961B2E05,
 				D4B212C7DCC2FAB614D76914,
 				073BBBCF90365702A52B1121,
+				AA1100070000000000000002,
 				513B9065DE5BC8E5D8F8A054,
 				F5E9832B3EF836B05120E481,
 				C6370DB2F4C21584F572065E,
@@ -520,6 +527,7 @@
 			files = (
 				A98402A5074171DBB3169B9B,
 				EDB43E1733380E17D1E44489,
+				AA1100080000000000000002,
 				B24555DEAE9B74A8DDBAAF7C,
 				1786AA708829CCE1101E2FAA,
 				9610EB320D4B6EB3E2CBF592,
